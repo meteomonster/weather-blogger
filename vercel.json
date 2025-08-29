@@ -1,6 +1,12 @@
 {
-  crons [
-    { path apigeneratetime=morning, schedule 0 4    },
-    { path apigeneratetime=evening, schedule 0 16    }
+  "crons": [
+    {
+      "path": "/api/generate?time=morning",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/generate?time=evening",
+      "schedule": "0 16 * * *"
+    }
   ]
 }
