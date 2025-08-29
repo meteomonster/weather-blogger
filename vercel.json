@@ -1,0 +1,6 @@
+{
+  crons [
+    { path apigeneratetime=morning, schedule 0 4    },
+    { path apigeneratetime=evening, schedule 0 16    }
+  ]
+}
