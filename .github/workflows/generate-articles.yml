@@ -20,17 +20,18 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: npm ci
+  run: npm install
 
-      - name: Determine time of day
-        id: tod
-        run: |
-          HOUR=$(TZ=Europe/Riga date +'%H')
-          if [ "$HOUR" -ge 16 ]; then
-            echo "TIME_OF_DAY=evening" >> $GITHUB_ENV
-          else
-            echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
-          fi
+        - name: Determine time of day
+              id: tod
+              run: |
+                HOUR=$(TZ=Europe/Riga date +'%-H')
+                if [ "$HOUR" -ge 16 ]; then
+                  echo "TIME_OF_DAY=evening" >> $GITHUB_ENV
+                else
+                  echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
+                fi
+
 
       - name: Generate article
         run: node generate-article.js $TIME_OF_DAY
