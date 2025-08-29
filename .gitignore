@@ -1,0 +1,6 @@
+node_modules
+latest-article.json
+article-*.json
+*.log
+.DS_Store
+Thumbs.db
