@@ -1,0 +1,42 @@
+name: Generate weather articles
+
+on:
+  # запуск два раза в день (UTC: 04:00 и 16:00 → Рига: 07:00 и 19:00)
+  schedule:
+    - cron: '0 4 * * *'
+    - cron: '0 16 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine time of day
+        id: tod
+        run: |
+          HOUR=$(TZ=Europe/Riga date +'%H')
+          if [ "$HOUR" -ge 16 ]; then
+            echo "TIME_OF_DAY=evening" >> $GITHUB_ENV
+          else
+            echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
+          fi
+
+      - name: Generate article
+        run: node generate-article.js $TIME_OF_DAY
+
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: 'article-*.json latest-article.json'
+          message: 'Auto-update weather article (${{ env.TIME_OF_DAY }})'
