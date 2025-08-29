@@ -2,20 +2,21 @@ import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 
-// 🔑 Твой API-ключ
+// 🔑 твой API-ключ
 const API_KEY = "AIzaSyCQF6mSwIyl3AUzfTVmJfN8kbOZvd8jsX0";
 const genAI = new GoogleGenerativeAI(API_KEY);
 
-// 🕑 Определяем аргумент (morning или evening)
-const timeOfDay = process.argv[2] || "morning"; // по умолчанию "morning"
+// 🕑 аргумент командной строки (morning или evening)
+const timeOfDay = process.argv[2] || "morning";
 
 async function getWeatherData() {
   const url = "https://api.open-meteo.com/v1/forecast";
   const params = {
     latitude: 56.95,
     longitude: 24.1,
-    daily: "temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max",
-    timezone: "Europe/Riga"
+    daily:
+      "temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max",
+    timezone: "Europe/Riga",
   };
 
   const response = await axios.get(url, { params });
@@ -25,9 +26,7 @@ async function getWeatherData() {
 async function generateArticle(weatherData, timeOfDay) {
   const prompt = `
 Представь, что ты метеоролог-журналист и пишешь прогноз для блога о погоде в Риге. 
-Статья должна быть рассчитана на публикацию дважды в день: утром (прогноз на день) и вечером (прогноз на ночь и утро).
-
-Сейчас нужно написать версию для: ${timeOfDay === "morning" ? "УТРА" : "ВЕЧЕРА"}.
+Нужно написать версию для: ${timeOfDay === "morning" ? "УТРА" : "ВЕЧЕРА"}.
 
 Структура текста:
 1. Вступление — дружеское приветствие (подходит для ${timeOfDay}).
@@ -40,7 +39,9 @@ async function generateArticle(weatherData, timeOfDay) {
 6. Финал — лёгкое пожелание (утром — хорошего дня, вечером — спокойной ночи).
 
 Вот синоптические данные:
-- Температура по дням: ${weatherData.temperature_2m_min.map((t,i)=>`${t}°C...${weatherData.temperature_2m_max[i]}°C`).join(", ")}
+- Температура по дням: ${weatherData.temperature_2m_min
+    .map((t, i) => `${t}°C...${weatherData.temperature_2m_max[i]}°C`)
+    .join(", ")}
 - Вероятность осадков: ${weatherData.precipitation_probability_max.join("%, ")}%
 - Скорость ветра: ${weatherData.windspeed_10m_max.join(" м/с, ")} м/с
 `;
@@ -51,21 +52,36 @@ async function generateArticle(weatherData, timeOfDay) {
 }
 
 function saveArticle(articleText, timeOfDay) {
-  const today = new Date().toLocaleDateString("ru-RU", {
+  const now = new Date();
+
+  const fileDate = now.toISOString().split("T")[0]; // YYYY-MM-DD
+  const displayDate = now.toLocaleDateString("ru-RU", {
     day: "numeric",
     month: "long",
-    year: "numeric"
+    year: "numeric",
   });
 
   const articleJson = {
-    title: articleText.split("\n")[0].replace(/[#*]/g, "").trim() || "Прогноз погоды в Риге",
-    date: today,
+    title:
+      articleText.split("\n")[0].replace(/[#*]/g, "").trim() ||
+      "Прогноз погоды в Риге",
+    date: displayDate,
     time: timeOfDay,
-    content: articleText
+    content: articleText,
   };
 
-  fs.writeFileSync("latest-article.json", JSON.stringify(articleJson, null, 2), "utf-8");
-  console.log(`✅ Статья (${timeOfDay}) сохранена в latest-article.json`);
+  // Сохраняем архивный файл
+  const fileName = `article-${fileDate}-${timeOfDay}.json`;
+  fs.writeFileSync(fileName, JSON.stringify(articleJson, null, 2), "utf-8");
+
+  // Перезаписываем latest-article.json для сайта
+  fs.writeFileSync(
+    "latest-article.json",
+    JSON.stringify(articleJson, null, 2),
+    "utf-8"
+  );
+
+  console.log(`✅ Статья (${timeOfDay}) сохранена в ${fileName} и latest-article.json`);
 }
 
 (async () => {

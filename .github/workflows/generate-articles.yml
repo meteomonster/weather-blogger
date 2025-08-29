@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '0 4 * * *'
     - cron: '0 16 * * *'
-  workflow_dispatch: {}
+  workflow_dispatch: {}   # можно запускать вручную из GitHub Actions
 
 jobs:
   build:
@@ -20,18 +20,17 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-  run: npm install
+        run: npm ci
 
-        - name: Determine time of day
-              id: tod
-              run: |
-                HOUR=$(TZ=Europe/Riga date +'%-H')
-                if [ "$HOUR" -ge 16 ]; then
-                  echo "TIME_OF_DAY=evening" >> $GITHUB_ENV
-                else
-                  echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
-                fi
-
+      - name: Determine time of day
+        id: tod
+        run: |
+          HOUR=$(TZ=Europe/Riga date +'%H')
+          if [ "$HOUR" -ge 16 ]; then
+            echo "TIME_OF_DAY=evening" >> $GITHUB_ENV
+          else
+            echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
+          fi
 
       - name: Generate article
         run: node generate-article.js $TIME_OF_DAY
