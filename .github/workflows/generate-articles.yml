@@ -51,7 +51,7 @@ jobs:
           node generate-article.js "${{ env.TIME_OF_DAY }}"
         env:
           TIME_OF_DAY: ${{ env.TIME_OF_DAY }}
-          # если скрипту нужны ключи API, подставь secrets здесь:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # <-- ДОБАВЬТЕ ЭТУ СТРОЧКУ
           # OPEN_METEO_KEY: ${{ secrets.OPEN_METEO_KEY }}
 
       # (необязательно) показать, что файлы реально создались
