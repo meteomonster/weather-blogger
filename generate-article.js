@@ -13,7 +13,69 @@ if (!API_KEY) {
 const genAI = new GoogleGenerativeAI(API_KEY);
 const timeOfDay = process.argv[2] || "morning";
 
-// --- НОВОЕ: ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ ИСТОРИЧЕСКИХ ДАННЫХ ---
+// --- ФИНАЛЬНОЕ ИЗМЕНЕНИЕ: ПЕРЕКЛЮЧАЕМСЯ НА API MET.NO (YR.NO) ---
+async function getWeatherData() {
+  const lat = 56.95;
+  const lon = 24.1;
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+
+  try {
+    const response = await axios.get(url, {
+        headers: { 'User-Agent': 'WeatherBloggerApp/1.0 https://github.com/meteomonster/weather-blogger' }
+    });
+    
+    const timeseries = response.data.properties.timeseries;
+    
+    // Группируем данные по дням
+    const dailyData = {};
+    for (const entry of timeseries) {
+        const date = entry.time.split('T')[0];
+        if (!dailyData[date]) {
+            dailyData[date] = [];
+        }
+        dailyData[date].push(entry.data.instant.details);
+    }
+    
+    // Обрабатываем сгруппированные данные
+    const forecastDays = Object.keys(dailyData).slice(0, 7);
+    const processedData = {
+        time: forecastDays,
+        temperature_2m_max: [],
+        temperature_2m_min: [],
+        apparent_temperature_max: [],
+        apparent_temperature_min: [],
+        wind_speed_10m_max: [],
+        wind_gusts_10m_max: [],
+        // API MET.NO не даёт вероятность осадков, поэтому будем использовать данные об осадках
+        precipitation_amount_max: [], 
+    };
+
+    for (const day of forecastDays) {
+        const dayEntries = dailyData[day];
+        
+        processedData.temperature_2m_max.push(Math.max(...dayEntries.map(d => d.air_temperature)));
+        processedData.temperature_2m_min.push(Math.min(...dayEntries.map(d => d.air_temperature)));
+        processedData.apparent_temperature_max.push(Math.max(...dayEntries.map(d => d.air_temperature_percentile_90 || d.air_temperature))); // Фоллбэк, если нет данных
+        processedData.apparent_temperature_min.push(Math.min(...dayEntries.map(d => d.air_temperature_percentile_10 || d.air_temperature))); // Фоллбэк
+        processedData.wind_speed_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed)));
+        processedData.wind_gusts_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed_of_gust)));
+        
+        // Ищем максимальное количество осадков за час в этот день
+        const nextHourPrecipitation = timeseries
+            .filter(entry => entry.time.startsWith(day) && entry.data.next_1_hours)
+            .map(entry => entry.data.next_1_hours.summary.precipitation_amount);
+        
+        processedData.precipitation_amount_max.push(nextHourPrecipitation.length > 0 ? Math.max(...nextHourPrecipitation) : 0);
+    }
+
+    return processedData;
+
+  } catch (error) {
+    console.error("Не удалось получить данные о погоде от MET.NO:", error.response ? error.response.data : error.message);
+    throw new Error("Ошибка получения данных о погоде.");
+  }
+}
+
 async function getHistoricalRecord(date) {
     try {
         const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -23,9 +85,7 @@ async function getHistoricalRecord(date) {
         const response = await axios.get(url);
         const data = response.data.daily;
         
-        if (!data || !data.time || data.time.length === 0) {
-            return "Исторические данные для этой даты не найдены.";
-        }
+        if (!data || !data.time || data.time.length === 0) return "Исторические данные для этой даты не найдены.";
 
         const records = data.time.map((t, i) => ({
             year: new Date(t).getFullYear(),
@@ -33,56 +93,23 @@ async function getHistoricalRecord(date) {
             min: data.temperature_2m_min[i],
         })).filter(r => r.max !== null && r.min !== null);
 
-        if (records.length === 0) {
-            return "Недостаточно исторических данных для анализа.";
-        }
+        if (records.length === 0) return "Недостаточно исторических данных для анализа.";
 
         const recordMax = records.reduce((prev, current) => (prev.max > current.max) ? prev : current);
         const recordMin = records.reduce((prev, current) => (prev.min < current.min) ? prev : current);
 
-        return `Самый теплый день в истории (${recordMax.year} год): ${recordMax.max}°C. Самый холодный (${recordMin.year} год): ${recordMin.min}°C.`;
+        return `Самый теплый день в истории (${recordMax.year} год): ${recordMax.max.toFixed(1)}°C. Самый холодный (${recordMin.year} год): ${recordMin.min.toFixed(1)}°C.`;
     } catch (error) {
         console.warn("Не удалось получить исторические данные:", error.message);
         return "Не удалось загрузить исторические данные.";
     }
 }
 
-
-async function getWeatherData() {
-  const url = "https://api.open-meteo.com/v1/forecast";
-  const params = {
-    latitude: 56.95,
-    longitude: 24.1,
-    daily: [
-        "temperature_2m_max",
-        "temperature_2m_min",
-        "apparent_temperature_max",
-        "apparent_temperature_min",
-        "precipitation_probability_max",
-        "wind_speed_10m_max",
-        "wind_gusts_10m_max"
-    ].join(','),
-    timezone: "Europe/Riga",
-    forecast_days: 7,
-    // ИСПРАВЛЕНИЕ: Возвращаем best_match для стабильности. Эта модель включает GFS.
-    models: "best_match", 
-  };
-
-  try {
-    const response = await axios.get(url, { params });
-    return response.data.daily;
-  } catch (error) {
-    console.error("Не удалось получить данные о погоде:", error.message);
-    throw new Error("Ошибка получения данных о погоде.");
-  }
-}
-
 async function generateArticle(weatherData, timeOfDay) {
   const today = new Date();
   const dateOptions = { day: 'numeric', month: 'long', timeZone: 'Europe/Riga' };
-  const dates = weatherData.time.map((_, i) => {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
+  const dates = weatherData.time.map((dateStr, i) => {
+      const date = new Date(dateStr + "T00:00:00Z"); // Указываем, что дата в UTC
       let prefix = "";
       if (i === 0) prefix = "Сегодня, ";
       if (i === 1) prefix = "Завтра, ";
@@ -95,12 +122,17 @@ async function generateArticle(weatherData, timeOfDay) {
   
   const historicalRecord = await getHistoricalRecord(today);
 
-  // --- ПРАВИЛО: Формируем данные о порывах ветра только если скорость ветра > 10 м/с ---
   const maxWindSpeedInForecast = Math.max(...weatherData.wind_speed_10m_max);
   let windGustsDataString = "";
   if (maxWindSpeedInForecast > 10) {
-      windGustsDataString = `\n- Макс. порывы ветра: ${weatherData.wind_gusts_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}`;
+      windGustsDataString = `\n- Макс. порывы ветра: ${weatherData.wind_gusts_10m_max.map((w, i) => `${dates[i]}: ${w.toFixed(1)} м/с`).join("; ")}`;
   }
+  
+  const precipitationDataString = weatherData.precipitation_amount_max.map((p, i) => {
+      if (p > 0) return `${dates[i]}: возможны осадки (до ${p.toFixed(1)} мм/час)`;
+      return `${dates[i]}: без существенных осадков`;
+  }).join("; ");
+
 
   const prompt = `
 Твоя роль: Опытный и харизматичный метеоролог, который ведёт популярный блог о погоде в Риге. Твой стиль — лёгкий, образный и немного литературный, но при этом технически безупречный. Ты объясняешь сложные вещи простым языком, используя яркие метафоры.
@@ -118,7 +150,7 @@ async function generateArticle(weatherData, timeOfDay) {
 
 Вступление: Дружелюбное приветствие, соответствующее времени суток (${timeOfDay}). Создание настроения.
 
-Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте. Укажи, какой барический центр определяет погоду, его происхождение и движение. Расскажи о прохождении атмосферных фронтов и их влиянии на Ригу. Учитывай также влажность, облачность, движение воздушных масс и влияние Балтийского моря.
+Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте.
 
 Детальный прогноз по дням:
 ${dates[0]} — подробно утро, день, вечер, ночь: температура, температура по ощущению, осадки, ветер и его порывы (если они значительны).
@@ -138,10 +170,10 @@ ${dates[1]} — прогноз на следующий день.
 Завершение: Позитивное или философское завершение с пожеланием читателям.
 
 НЕОБРАБОТАННЫЕ ДАННЫЕ ДЛЯ ТВОЕГО АНАЛИЗА:
-- Температура воздуха (мин/макс): ${weatherData.temperature_2m_min.map((t, i) => `${dates[i]}: ${t}°C...${weatherData.temperature_2m_max[i]}°C`).join("; ")}
-- Температура по ощущению (мин/макс): ${weatherData.apparent_temperature_min.map((t, i) => `${dates[i]}: ${t}°C...${weatherData.apparent_temperature_max[i]}°C`).join("; ")}
-- Макс. вероятность осадков: ${weatherData.precipitation_probability_max.map((p, i) => `${dates[i]}: ${p}%`).join("; ")}
-- Макс. скорость ветра: ${weatherData.wind_speed_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}${windGustsDataString}
+- Температура воздуха (мин/макс): ${weatherData.temperature_2m_min.map((t, i) => `${dates[i]}: ${t.toFixed(1)}°C...${weatherData.temperature_2m_max[i].toFixed(1)}°C`).join("; ")}
+- Температура по ощущению (мин/макс): ${weatherData.apparent_temperature_min.map((t, i) => `${dates[i]}: ${t.toFixed(1)}°C...${weatherData.apparent_temperature_max[i].toFixed(1)}°C`).join("; ")}
+- Данные по осадкам: ${precipitationDataString}
+- Макс. скорость ветра: ${weatherData.wind_speed_10m_max.map((w, i) => `${dates[i]}: ${w.toFixed(1)} м/с`).join("; ")}${windGustsDataString}
 `;
 
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
@@ -205,4 +237,3 @@ function saveArticle(articleText, timeOfDay) {
     process.exit(1);
   }
 })();
-
