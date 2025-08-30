@@ -2,12 +2,13 @@ name: Generate weather articles
 
 on:
   schedule:
-    # UTC: 04:00 и 16:00 → Riga: 07:00 и 19:00
+    # UTC: 04:00 и 16:00 → Рига: 07:00 и 19:00 (летом)
     - cron: '0 4 * * *'
     - cron: '0 16 * * *'
+  # Позволяет запускать воркфлоу вручную из вкладки Actions на GitHub
   workflow_dispatch:
 
-# 1) даём экшену право писать в репозиторий
+# 1) Даём экшену право записывать (commit) файлы в репозиторий
 permissions:
   contents: write
 
@@ -16,25 +17,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Шаг 1: Скачиваем код из репозитория
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0               # 2) полная история
+          fetch-depth: 0 # Нужна полная история для коммитов
 
+      # Шаг 2: Настраиваем среду Node.js
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'                 # быстрее, если есть package-lock.json
+          cache: 'npm' # Ускоряет установку
 
+      # Шаг 3: Устанавливаем зависимости (ИСПРАВЛЕННЫЙ БЛОК)
+      # Используем npm install, чтобы избежать ошибок с package-lock.json
       - name: Install dependencies
-        run: |
-          if [ -f package-lock.json ]; then
-            npm ci
-          else
-            npm install
-          fi
+        run: npm install
 
+      # Шаг 4: Определяем, утро сейчас или вечер в Риге
       - name: Determine time of day (Riga)
         id: tod
         run: |
@@ -44,48 +45,38 @@ jobs:
           else
             echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
           fi
-          echo "It is $HOUR:00 in Riga → $TIME_OF_DAY"
+          echo "It is $HOUR:00 in Riga → ${{ env.TIME_OF_DAY }}"
 
+      # Шаг 5: Запускаем скрипт генерации статьи
       - name: Generate article
-        run: |
-          node generate-article.js "${{ env.TIME_OF_DAY }}"
+        run: node generate-article.js "${{ env.TIME_OF_DAY }}"
         env:
+          # Передаём в скрипт время суток и секретный API-ключ
           TIME_OF_DAY: ${{ env.TIME_OF_DAY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # <-- ДОБАВЬТЕ ЭТУ СТРОЧКУ
-          # OPEN_METEO_KEY: ${{ secrets.OPEN_METEO_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-      # (необязательно) показать, что файлы реально создались
+      # Шаг 6: (Необязательно) Проверяем, что файлы были созданы
       - name: List generated files
         run: |
           echo "::group::git status"
           git status --porcelain
           echo "::endgroup::"
-          echo "::group::tree"
+          echo "::group::ls -la"
           ls -la
-          find . -maxdepth 2 -name 'article-*.json' -o -name 'latest-article.json' | sed 's/^/FILE: /'
           echo "::endgroup::"
 
+      # Шаг 7: Сохраняем сгенерированные файлы в репозиторий
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
         with:
+          # Указываем, какие файлы добавлять в коммит
           add: |
             article-*.json
             latest-article.json
-            # или укажи подкаталог, если пишешь в content/articles:
-            # content/articles/article-*.json
-            # content/articles/latest-article.json
+          # Сообщение для коммита
           message: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
+          # Автор коммита
           default_author: github_actions
+          # Автоматически отправляем коммит в репозиторий
           push: true
-          # если main защищён — пуш в отдельную ветку+PR:
-          # new_branch: auto/articles-update
-          # create_branch: true
-
-      # (необязательно) Открой PR, если ветка защищена:
-      # - name: Create pull request
-      #   uses: peter-evans/create-pull-request@v6
-      #   with:
-      #     commit-message: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
-      #     title: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
-      #     branch: auto/articles-update
-      #     base: main
+          
