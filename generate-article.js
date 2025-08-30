@@ -40,7 +40,7 @@ async function getHistoricalRecord(date) {
         const recordMax = records.reduce((prev, current) => (prev.max > current.max) ? prev : current);
         const recordMin = records.reduce((prev, current) => (prev.min < current.min) ? prev : current);
 
-        return `Самый теплый день (${recordMax.year} год): ${recordMax.max}°C. Самый холодный (${recordMin.year} год): ${recordMin.min}°C.`;
+        return `Самый теплый день в истории (${recordMax.year} год): ${recordMax.max}°C. Самый холодный (${recordMin.year} год): ${recordMin.min}°C.`;
     } catch (error) {
         console.warn("Не удалось получить исторические данные:", error.message);
         return "Не удалось загрузить исторические данные.";
@@ -50,12 +50,23 @@ async function getHistoricalRecord(date) {
 
 async function getWeatherData() {
   const url = "https://api.open-meteo.com/v1/forecast";
+  // --- УЛУЧШЕНИЕ: ИСПОЛЬЗУЕМ БОЛЕЕ ТОЧНЫЕ ДАННЫЕ И МОДЕЛИ ---
   const params = {
     latitude: 56.95,
     longitude: 24.1,
-    daily: "temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max",
+    daily: [
+        "temperature_2m_max",
+        "temperature_2m_min",
+        "apparent_temperature_max",
+        "apparent_temperature_min",
+        "precipitation_probability_max",
+        "wind_speed_10m_max",
+        "wind_gusts_10m_max"
+    ].join(','),
     timezone: "Europe/Riga",
     forecast_days: 7,
+    // Эта опция автоматически выбирает лучшую модель, комбинируя GFS и модели высокого разрешения.
+    models: "best_match", 
   };
 
   try {
@@ -68,7 +79,6 @@ async function getWeatherData() {
 }
 
 async function generateArticle(weatherData, timeOfDay) {
-  // --- НОВОЕ: ПОДГОТОВКА ДАТ И ИСТОРИЧЕСКИХ ДАННЫХ ---
   const today = new Date();
   const dateOptions = { day: 'numeric', month: 'long', timeZone: 'Europe/Riga' };
   const dates = weatherData.time.map((_, i) => {
@@ -86,7 +96,14 @@ async function generateArticle(weatherData, timeOfDay) {
   
   const historicalRecord = await getHistoricalRecord(today);
 
-  // --- НОВОЕ: ВАШ УЛУЧШЕННЫЙ ПРОМПТ ---
+  // --- НОВОЕ ПРАВИЛО: Формируем данные о порывах ветра только если скорость ветра > 10 м/с ---
+  const maxWindSpeedInForecast = Math.max(...weatherData.wind_speed_10m_max);
+  let windGustsDataString = "";
+  if (maxWindSpeedInForecast > 10) {
+      windGustsDataString = `\n- Макс. порывы ветра: ${weatherData.wind_gusts_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}`;
+  }
+
+  // --- УЛУЧШЕНИЕ: ОБНОВЛЕННЫЙ ПРОМПТ С НОВЫМИ ДАННЫМИ ---
   const prompt = `
 Твоя роль: Опытный и харизматичный метеоролог, который ведёт популярный блог о погоде в Риге. Твой стиль — лёгкий, образный и немного литературный, но при этом технически безупречный. Ты объясняешь сложные вещи простым языком, используя яркие метафоры.
 
@@ -95,7 +112,7 @@ async function generateArticle(weatherData, timeOfDay) {
 СТРОГИЕ ПРАВИЛА ФОРМАТИРОВАНИЯ (ОБЯЗАТЕЛЬНО К ВЫПОЛНЕНИЮ):
 1. НИКАКОГО MARKDOWN: Не используй символы ##, **, * или любые другие. Только чистый текст.
 2. ТОЛЬКО РЕАЛЬНЫЕ ДАТЫ: Вместо "1-й день", "2-й день" используй настоящие даты.
-3. БЕЗ ДВОЕТОЧИЙ В ЗАГОЛОВКАХ: В подзаголовках типа "Детальный прогноз" не ставь двоеточие в конце.
+3. ПОДЗАГОЛОВКИ: Каждый подзаголовок (например, "Детальный прогноз по дням") должен быть на отдельной строке. После подзаголовка ОБЯЗАТЕЛЬНО должна быть одна пустая строка.
 
 СТРУКТУРА СТАТЬИ:
 
@@ -103,16 +120,16 @@ async function generateArticle(weatherData, timeOfDay) {
 
 Вступление: Дружелюбное приветствие, соответствующее времени суток (${timeOfDay}). Создание настроения.
 
-Синоптическая картина "с высоты птичьего полёта": Описание процессов на метеокарте. Укажи, какой барический центр определяет погоду, его происхождение и движение. Расскажи о прохождении атмосферных фронтов и их влиянии на Ригу. Учитывай также влажность, облачность, движение воздушных масс и влияние Балтийского моря.
+Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте. Укажи, какой барический центр определяет погоду, его происхождение и движение. Расскажи о прохождении атмосферных фронтов и их влиянии на Ригу. Учитывай также влажность, облачность, движение воздушных масс и влияние Балтийского моря.
 
 Детальный прогноз по дням:
-${dates[0]} — подробно утро, день, вечер, ночь: температура, осадки, ветер.
+${dates[0]} — подробно утро, день, вечер, ночь: температура, температура по ощущению, осадки, ветер и его порывы (если они значительны).
 ${dates[1]} — прогноз на следующий день.
 Прогноз на 2–3 дня вперёд — кратко, с датами ${dates[2]} и ${dates[3]}.
 
 Почему так, а не иначе: Объяснение физики процессов простым языком с метафорами.
 
-Совет от метеоролога: Один-два практических совета на основе прогноза.
+Совет от метеоролога: Один-два практических совета на основе прогноза. ${maxWindSpeedInForecast > 10 ? "Обязательно упомяни сильные порывы ветра, так как они ожидаются." : "Сделай акцент на температуре по ощущению."}
 
 Мини-рубрика “А вы знали, что…”: Любопытный факт из мира метеорологии.
 
@@ -123,9 +140,10 @@ ${dates[1]} — прогноз на следующий день.
 Завершение: Позитивное или философское завершение с пожеланием читателям.
 
 НЕОБРАБОТАННЫЕ ДАННЫЕ ДЛЯ ТВОЕГО АНАЛИЗА:
-- Диапазон температур (мин/макс) на 7 дней: ${weatherData.temperature_2m_min.map((t, i) => `${dates[i]}: ${t}°C...${weatherData.temperature_2m_max[i]}°C`).join("; ")}
-- Максимальная вероятность осадков на 7 дней: ${weatherData.precipitation_probability_max.map((p, i) => `${dates[i]}: ${p}%`).join("; ")}
-- Максимальная скорость ветра на 7 дней: ${weatherData.windspeed_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}
+- Температура воздуха (мин/макс): ${weatherData.temperature_2m_min.map((t, i) => `${dates[i]}: ${t}°C...${weatherData.temperature_2m_max[i]}°C`).join("; ")}
+- Температура по ощущению (мин/макс): ${weatherData.apparent_temperature_min.map((t, i) => `${dates[i]}: ${t}°C...${weatherData.apparent_temperature_max[i]}°C`).join("; ")}
+- Макс. вероятность осадков: ${weatherData.precipitation_probability_max.map((p, i) => `${dates[i]}: ${p}%`).join("; ")}
+- Макс. скорость ветра: ${weatherData.wind_speed_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}${windGustsDataString}
 `;
 
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
