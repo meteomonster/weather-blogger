@@ -48,7 +48,6 @@ async function getWeatherData() {
         wind_speed_10m_max: [],
         wind_gusts_10m_max: [],
         precipitation_amount_max: [],
-        // НОВОЕ: Добавляем данные по облачности
         cloud_cover_max: [], 
     };
 
@@ -61,7 +60,6 @@ async function getWeatherData() {
         processedData.apparent_temperature_min.push(Math.min(...dayEntries.map(d => d.air_temperature_percentile_10 || d.air_temperature)));
         processedData.wind_speed_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed)));
         processedData.wind_gusts_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed_of_gust)));
-        // НОВОЕ: Вычисляем максимальную облачность за день
         processedData.cloud_cover_max.push(Math.max(...dayEntries.map(d => d.cloud_area_fraction)));
 
         const nextHourPrecipitation = timeseries
@@ -136,7 +134,6 @@ async function generateArticle(weatherData, timeOfDay) {
       return `${dates[i]}: без существенных осадков`;
   }).join("; ");
 
-  // НОВОЕ: Формируем строку с данными по облачности
   const cloudCoverDataString = weatherData.cloud_cover_max.map((c, i) => `${dates[i]}: до ${c.toFixed(0)}%`).join("; ");
 
   const prompt = `
@@ -155,7 +152,7 @@ async function generateArticle(weatherData, timeOfDay) {
 
 Вступление: Дружелюбное приветствие, соответствующее времени суток (${timeOfDay}). Создание настроения.
 
-Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте. Обязательно используй данные об облачности.
+Синоптическая картина с высоты птичьего полёта: Проведи обширный анализ метеокарты. Определи, какой барический центр (циклон или антициклон) сейчас доминирует над регионом Балтийского моря. Опиши его происхождение (например, атлантический, скандинавский), текущее положение и прогнозируемую траекторию движения. Расскажи, как его циркуляция и связанные с ним атмосферные фронты (тёплые, холодные) повлияют на погоду в Риге в ближайшие дни. Обязательно используй данные об облачности и движении воздушных масс.
 
 Детальный прогноз по дням:
 ${dates[0]} — подробно утро, день, вечер, ночь: температура, температура по ощущению, облачность, осадки, ветер и его порывы (если они значительны).
@@ -243,4 +240,3 @@ function saveArticle(articleText, timeOfDay) {
     process.exit(1);
   }
 })();
-
