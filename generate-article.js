@@ -50,7 +50,7 @@ async function getHistoricalRecord(date) {
 
 async function getWeatherData() {
   const url = "https://api.open-meteo.com/v1/forecast";
-  // --- УЛУЧШЕНИЕ: ИСПОЛЬЗУЕМ БОЛЕЕ ТОЧНЫЕ ДАННЫЕ И МОДЕЛИ ---
+  // --- ИЗМЕНЕНИЕ: ИСПОЛЬЗУЕМ ТОЛЬКО МОДЕЛЬ GFS ДЛЯ ВСЕХ ДАННЫХ ---
   const params = {
     latitude: 56.95,
     longitude: 24.1,
@@ -65,8 +65,8 @@ async function getWeatherData() {
     ].join(','),
     timezone: "Europe/Riga",
     forecast_days: 7,
-    // Эта опция автоматически выбирает лучшую модель, комбинируя GFS и модели высокого разрешения.
-    models: "best_match", 
+    // Используем GFS для стабильности данных по ветру.
+    models: "gfs", 
   };
 
   try {
@@ -96,14 +96,13 @@ async function generateArticle(weatherData, timeOfDay) {
   
   const historicalRecord = await getHistoricalRecord(today);
 
-  // --- НОВОЕ ПРАВИЛО: Формируем данные о порывах ветра только если скорость ветра > 10 м/с ---
+  // --- ПРАВИЛО: Формируем данные о порывах ветра только если скорость ветра > 10 м/с ---
   const maxWindSpeedInForecast = Math.max(...weatherData.wind_speed_10m_max);
   let windGustsDataString = "";
   if (maxWindSpeedInForecast > 10) {
       windGustsDataString = `\n- Макс. порывы ветра: ${weatherData.wind_gusts_10m_max.map((w, i) => `${dates[i]}: ${w} м/с`).join("; ")}`;
   }
 
-  // --- УЛУЧШЕНИЕ: ОБНОВЛЕННЫЙ ПРОМПТ С НОВЫМИ ДАННЫМИ ---
   const prompt = `
 Твоя роль: Опытный и харизматичный метеоролог, который ведёт популярный блог о погоде в Риге. Твой стиль — лёгкий, образный и немного литературный, но при этом технически безупречный. Ты объясняешь сложные вещи простым языком, используя яркие метафоры.
 
