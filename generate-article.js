@@ -50,7 +50,6 @@ async function getHistoricalRecord(date) {
 
 async function getWeatherData() {
   const url = "https://api.open-meteo.com/v1/forecast";
-  // --- ИЗМЕНЕНИЕ: ИСПОЛЬЗУЕМ ТОЛЬКО МОДЕЛЬ GFS ДЛЯ ВСЕХ ДАННЫХ ---
   const params = {
     latitude: 56.95,
     longitude: 24.1,
@@ -65,8 +64,8 @@ async function getWeatherData() {
     ].join(','),
     timezone: "Europe/Riga",
     forecast_days: 7,
-    // Используем GFS для стабильности данных по ветру.
-    models: "gfs", 
+    // ИСПРАВЛЕНИЕ: Возвращаем best_match для стабильности. Эта модель включает GFS.
+    models: "best_match", 
   };
 
   try {
@@ -206,3 +205,4 @@ function saveArticle(articleText, timeOfDay) {
     process.exit(1);
   }
 })();
+
