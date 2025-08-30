@@ -13,7 +13,7 @@ if (!API_KEY) {
 const genAI = new GoogleGenerativeAI(API_KEY);
 const timeOfDay = process.argv[2] || "morning";
 
-// --- ФИНАЛЬНОЕ ИЗМЕНЕНИЕ: ПЕРЕКЛЮЧАЕМСЯ НА API MET.NO (YR.NO) ---
+// --- ИСПОЛЬЗУЕМ API MET.NO (YR.NO) ДЛЯ ВСЕХ ДАННЫХ ---
 async function getWeatherData() {
   const lat = 56.95;
   const lon = 24.1;
@@ -21,12 +21,13 @@ async function getWeatherData() {
 
   try {
     const response = await axios.get(url, {
+        // API MET.NO требует указания User-Agent для идентификации запроса
         headers: { 'User-Agent': 'WeatherBloggerApp/1.0 https://github.com/meteomonster/weather-blogger' }
     });
     
     const timeseries = response.data.properties.timeseries;
     
-    // Группируем данные по дням
+    // Группируем почасовые данные по дням
     const dailyData = {};
     for (const entry of timeseries) {
         const date = entry.time.split('T')[0];
@@ -36,7 +37,7 @@ async function getWeatherData() {
         dailyData[date].push(entry.data.instant.details);
     }
     
-    // Обрабатываем сгруппированные данные
+    // Обрабатываем сгруппированные данные, чтобы получить мин/макс за каждый день
     const forecastDays = Object.keys(dailyData).slice(0, 7);
     const processedData = {
         time: forecastDays,
@@ -46,8 +47,9 @@ async function getWeatherData() {
         apparent_temperature_min: [],
         wind_speed_10m_max: [],
         wind_gusts_10m_max: [],
-        // API MET.NO не даёт вероятность осадков, поэтому будем использовать данные об осадках
-        precipitation_amount_max: [], 
+        precipitation_amount_max: [],
+        // НОВОЕ: Добавляем данные по облачности
+        cloud_cover_max: [], 
     };
 
     for (const day of forecastDays) {
@@ -55,12 +57,13 @@ async function getWeatherData() {
         
         processedData.temperature_2m_max.push(Math.max(...dayEntries.map(d => d.air_temperature)));
         processedData.temperature_2m_min.push(Math.min(...dayEntries.map(d => d.air_temperature)));
-        processedData.apparent_temperature_max.push(Math.max(...dayEntries.map(d => d.air_temperature_percentile_90 || d.air_temperature))); // Фоллбэк, если нет данных
-        processedData.apparent_temperature_min.push(Math.min(...dayEntries.map(d => d.air_temperature_percentile_10 || d.air_temperature))); // Фоллбэк
+        processedData.apparent_temperature_max.push(Math.max(...dayEntries.map(d => d.air_temperature_percentile_90 || d.air_temperature)));
+        processedData.apparent_temperature_min.push(Math.min(...dayEntries.map(d => d.air_temperature_percentile_10 || d.air_temperature)));
         processedData.wind_speed_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed)));
         processedData.wind_gusts_10m_max.push(Math.max(...dayEntries.map(d => d.wind_speed_of_gust)));
-        
-        // Ищем максимальное количество осадков за час в этот день
+        // НОВОЕ: Вычисляем максимальную облачность за день
+        processedData.cloud_cover_max.push(Math.max(...dayEntries.map(d => d.cloud_area_fraction)));
+
         const nextHourPrecipitation = timeseries
             .filter(entry => entry.time.startsWith(day) && entry.data.next_1_hours)
             .map(entry => entry.data.next_1_hours.summary.precipitation_amount);
@@ -109,7 +112,7 @@ async function generateArticle(weatherData, timeOfDay) {
   const today = new Date();
   const dateOptions = { day: 'numeric', month: 'long', timeZone: 'Europe/Riga' };
   const dates = weatherData.time.map((dateStr, i) => {
-      const date = new Date(dateStr + "T00:00:00Z"); // Указываем, что дата в UTC
+      const date = new Date(dateStr + "T00:00:00Z");
       let prefix = "";
       if (i === 0) prefix = "Сегодня, ";
       if (i === 1) prefix = "Завтра, ";
@@ -133,6 +136,8 @@ async function generateArticle(weatherData, timeOfDay) {
       return `${dates[i]}: без существенных осадков`;
   }).join("; ");
 
+  // НОВОЕ: Формируем строку с данными по облачности
+  const cloudCoverDataString = weatherData.cloud_cover_max.map((c, i) => `${dates[i]}: до ${c.toFixed(0)}%`).join("; ");
 
   const prompt = `
 Твоя роль: Опытный и харизматичный метеоролог, который ведёт популярный блог о погоде в Риге. Твой стиль — лёгкий, образный и немного литературный, но при этом технически безупречный. Ты объясняешь сложные вещи простым языком, используя яркие метафоры.
@@ -150,10 +155,10 @@ async function generateArticle(weatherData, timeOfDay) {
 
 Вступление: Дружелюбное приветствие, соответствующее времени суток (${timeOfDay}). Создание настроения.
 
-Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте.
+Синоптическая картина с высоты птичьего полёта: Описание процессов на метеокарте. Обязательно используй данные об облачности.
 
 Детальный прогноз по дням:
-${dates[0]} — подробно утро, день, вечер, ночь: температура, температура по ощущению, осадки, ветер и его порывы (если они значительны).
+${dates[0]} — подробно утро, день, вечер, ночь: температура, температура по ощущению, облачность, осадки, ветер и его порывы (если они значительны).
 ${dates[1]} — прогноз на следующий день.
 Прогноз на 2–3 дня вперёд — кратко, с датами ${dates[2]} и ${dates[3]}.
 
@@ -174,6 +179,7 @@ ${dates[1]} — прогноз на следующий день.
 - Температура по ощущению (мин/макс): ${weatherData.apparent_temperature_min.map((t, i) => `${dates[i]}: ${t.toFixed(1)}°C...${weatherData.apparent_temperature_max[i].toFixed(1)}°C`).join("; ")}
 - Данные по осадкам: ${precipitationDataString}
 - Макс. скорость ветра: ${weatherData.wind_speed_10m_max.map((w, i) => `${dates[i]}: ${w.toFixed(1)} м/с`).join("; ")}${windGustsDataString}
+- Облачность (макс. % покрытия): ${cloudCoverDataString}
 `;
 
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
@@ -237,3 +243,4 @@ function saveArticle(articleText, timeOfDay) {
     process.exit(1);
   }
 })();
+
