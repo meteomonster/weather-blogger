@@ -1,6 +1,9 @@
+Игнорируем зависимости Node.js — это обязательно!
 node_modules
-latest-article.json
-article-*.json
-*.log
+
+Игнорируем системные файлы macOS и Windows
 .DS_Store
 Thumbs.db
+
+Игнорируем лог-файлы
+*.log
