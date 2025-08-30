@@ -1,28 +1,41 @@
 name: Generate weather articles
 
 on:
-  # запуск два раза в день (UTC: 04:00 и 16:00 → Рига: 07:00 и 19:00)
   schedule:
+    # UTC: 04:00 и 16:00 → Riga: 07:00 и 19:00
     - cron: '0 4 * * *'
     - cron: '0 16 * * *'
-  workflow_dispatch: {}   # можно запускать вручную из GitHub Actions
+  workflow_dispatch:
+
+# 1) даём экшену право писать в репозиторий
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0               # 2) полная история
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: 'npm'                 # быстрее, если есть package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
 
-      - name: Determine time of day
+      - name: Determine time of day (Riga)
         id: tod
         run: |
           HOUR=$(TZ=Europe/Riga date +'%H')
@@ -31,12 +44,48 @@ jobs:
           else
             echo "TIME_OF_DAY=morning" >> $GITHUB_ENV
           fi
+          echo "It is $HOUR:00 in Riga → $TIME_OF_DAY"
 
       - name: Generate article
-        run: node generate-article.js $TIME_OF_DAY
+        run: |
+          node generate-article.js "${{ env.TIME_OF_DAY }}"
+        env:
+          TIME_OF_DAY: ${{ env.TIME_OF_DAY }}
+          # если скрипту нужны ключи API, подставь secrets здесь:
+          # OPEN_METEO_KEY: ${{ secrets.OPEN_METEO_KEY }}
+
+      # (необязательно) показать, что файлы реально создались
+      - name: List generated files
+        run: |
+          echo "::group::git status"
+          git status --porcelain
+          echo "::endgroup::"
+          echo "::group::tree"
+          ls -la
+          find . -maxdepth 2 -name 'article-*.json' -o -name 'latest-article.json' | sed 's/^/FILE: /'
+          echo "::endgroup::"
 
       - name: Commit changes
         uses: EndBug/add-and-commit@v9
         with:
-          add: 'article-*.json latest-article.json'
-          message: 'Auto-update weather article (${{ env.TIME_OF_DAY }})'
+          add: |
+            article-*.json
+            latest-article.json
+            # или укажи подкаталог, если пишешь в content/articles:
+            # content/articles/article-*.json
+            # content/articles/latest-article.json
+          message: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
+          default_author: github_actions
+          push: true
+          # если main защищён — пуш в отдельную ветку+PR:
+          # new_branch: auto/articles-update
+          # create_branch: true
+
+      # (необязательно) Открой PR, если ветка защищена:
+      # - name: Create pull request
+      #   uses: peter-evans/create-pull-request@v6
+      #   with:
+      #     commit-message: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
+      #     title: "Auto-update weather article (${{ env.TIME_OF_DAY }})"
+      #     branch: auto/articles-update
+      #     base: main
