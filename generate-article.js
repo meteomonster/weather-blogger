@@ -22,11 +22,10 @@ const genAI = new GoogleGenerativeAI(API_KEY);
 // 2) Параметры запуска
 const timeOfDay = (process.argv[2] || "morning").toLowerCase();
 const TOD_RU = { morning: "утренний", afternoon: "дневной", evening: "вечерний", night: "ночной" };
-const timeOfDayRu = TOD_RU[timeOfDay] || timeOfDay; // на случай, если придёт что-то иное
+const timeOfDayRu = TOD_RU[timeOfDay] || timeOfDay;
 
 // 3) Утилиты
 function toISODateInTZ(date, tz) {
-  // Возвращает YYYY-MM-DD в заданной таймзоне
   const s = new Date(date).toLocaleString("sv-SE", { timeZone: tz });
   return s.slice(0, 10);
 }
@@ -42,35 +41,10 @@ function sanitizeArticle(text) {
   // Убираем лидирующие/хвостовые пустые строки
   t = t.replace(/^\s+/, "").replace(/\s+$/, "");
 
-  // Удаляем возможную строку-дублирующийся заголовок ниже по тексту
-  const lines = t.split("\n").map(l => l.replace(/\s+$/,""));
-  const firstContentLineIndex = lines.findIndex(l => l.trim().length > 0);
-  if (firstContentLineIndex > -1) {
-    const titleLine = lines[firstContentLineIndex].trim();
-    for (let i = firstContentLineIndex + 1; i < Math.min(lines.length, firstContentLineIndex + 8); i++) {
-      if (lines[i].trim() === titleLine) {
-        lines.splice(i, 1);
-        break;
-      }
-    }
-  }
-
-  // Если сразу после заголовка идёт отдельная «дата»-строка — удаляем её (мы не просим выводить отдельную дату)
-  const dateLike = /^\d{1,2}\s[а-яё]+\s20\d{2}\s?г?\.?/i;
-  const idx = lines.findIndex(l => l.trim().length > 0);
-  if (idx > -1 && idx + 1 < lines.length) {
-    const next = lines[idx + 1].trim();
-    if (dateLike.test(next)) {
-      lines.splice(idx + 1, 1);
-    }
-  }
-
-  t = lines.join("\n").trim() + "\n";
   return t;
 }
 
 function circularMeanDeg(values) {
-  // Среднее направление ветра по кругу в градусах (0..360)
   const rad = values
     .filter(v => typeof v === "number" && !Number.isNaN(v))
     .map(v => (v * Math.PI) / 180);
@@ -84,7 +58,7 @@ function circularMeanDeg(values) {
 
 function degToCompass(d) {
   if (d == null) return null;
-  const dirs = ["C", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ", "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"];
+  const dirs = ["С", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ", "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"];
   const ix = Math.round((d % 360) / 22.5) % 16;
   return dirs[ix];
 }
@@ -98,7 +72,6 @@ async function getWeatherData() {
   try {
     const response = await axios.get(url, {
       headers: {
-        // Требование MET.NO — корректный User-Agent
         "User-Agent": "WeatherBloggerApp/1.0 (+https://github.com/meteomonster/weather-blogger)"
       },
       timeout: 20000
@@ -107,22 +80,20 @@ async function getWeatherData() {
     const timeseries = response.data?.properties?.timeseries || [];
     if (!timeseries.length) throw new Error("Пустой timeseries в ответе MET.NO");
 
-    // Сформируем карту: дата YYYY-MM-DD -> массив почасовых объектов (instant + next_1h)
     const byDay = new Map();
     for (const entry of timeseries) {
-      const iso = entry.time; // "2025-08-30T12:00:00Z"
+      const iso = entry.time;
       const day = iso.slice(0, 10);
       const instant = entry?.data?.instant?.details || {};
       const next1 = entry?.data?.next_1_hours || null;
 
       if (!byDay.has(day)) byDay.set(day, []);
       byDay.get(day).push({
-        air_temperature: instant.air_temperature,                       // °C
-        wind_speed: instant.wind_speed,                                 // м/с
-        wind_gust: instant.wind_speed_of_gust,                          // м/с
-        wind_dir: instant.wind_from_direction,                          // градусы
-        cloud: instant.cloud_area_fraction,                             // %
-        // Осадки на следующий час — MET.NO может класть в summary или details
+        air_temperature: instant.air_temperature,
+        wind_speed: instant.wind_speed,
+        wind_gust: instant.wind_speed_of_gust,
+        wind_dir: instant.wind_from_direction,
+        cloud: instant.cloud_area_fraction,
         precip_next1h:
           next1?.summary?.precipitation_amount ??
           next1?.details?.precipitation_amount ??
@@ -130,7 +101,6 @@ async function getWeatherData() {
       });
     }
 
-    // Берём 7 ближайших дат по возрастанию
     const forecastDays = Array.from(byDay.keys()).sort().slice(0, 7);
 
     const processed = {
@@ -142,9 +112,9 @@ async function getWeatherData() {
       wind_speed_10m_max: [],
       wind_gusts_10m_max: [],
       wind_direction_dominant: [],
-      precipitation_amount_max: [], // максимум по часу, мм/ч
-      cloud_cover_max: [],          // максимум покрытия, %
-      sunrise: [],                  // заглушки, если захотите заполнять из другого источника
+      precipitation_amount_max: [],
+      cloud_cover_max: [],
+      sunrise: [],
       sunset: []
     };
 
@@ -157,11 +127,9 @@ async function getWeatherData() {
       const dirs = arr.map(a => a.wind_dir).filter(n => typeof n === "number");
       const pr1h = arr.map(a => a.precip_next1h).filter(n => typeof n === "number");
 
-      // Макс/мин температура
       const tMax = temps.length ? Math.max(...temps) : null;
       const tMin = temps.length ? Math.min(...temps) : null;
 
-      // «По ощущению» (эмпирически): при сильном ветре ощущается на 1°C прохладнее
       const windAdj = (winds.length && Math.max(...winds) >= 8) ? 1 : 0;
       const appMax = tMax != null ? tMax - windAdj : null;
       const appMin = tMin != null ? tMin - windAdj : null;
@@ -183,7 +151,7 @@ async function getWeatherData() {
 
       processed.precipitation_amount_max.push(pr1h.length ? Math.max(...pr1h) : 0);
 
-      processed.sunrise.push("");  // можно заполнить из отдельного источника
+      processed.sunrise.push("");
       processed.sunset.push("");
     }
 
@@ -194,12 +162,12 @@ async function getWeatherData() {
   }
 }
 
-// 5) Исторические рекорды для ЭТОГО дня календаря (в Риге, по Open-Meteo Archive)
+// 5) Исторические рекорды для ЭТОГО дня календаря
 async function getHistoricalRecord(date) {
   try {
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const day = String(date.getUTCDate()).padStart(2, "0");
-    const startYear = 1979; // надёжный период для многих реанализов
+    const startYear = 1979;
     const endYear = date.getUTCFullYear() - 1;
 
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=56.95&longitude=24.1&start_date=${startYear}-${month}-${day}&end_date=${endYear}-${month}-${day}&daily=temperature_2m_max,temperature_2m_min`;
@@ -211,7 +179,6 @@ async function getHistoricalRecord(date) {
 
     if (!t.length) return "Нет надёжных исторических данных для этой даты.";
 
-    // Оставляем только записи, где месяц/день совпадают (на случай, если API вернул диапазон)
     const recs = t.map((iso, i) => ({
       year: Number(iso.slice(0, 4)),
       month: iso.slice(5, 7),
@@ -232,7 +199,7 @@ async function getHistoricalRecord(date) {
   }
 }
 
-// 6) Формирование человекочитаемых дат по массиву daily.time
+// 6) Формирование человекочитаемых дат
 function buildDateLabels(dailyTime) {
   const tz = "Europe/Riga";
   const todayStr = toISODateInTZ(new Date(), tz);
@@ -246,7 +213,6 @@ function buildDateLabels(dailyTime) {
     if (iso === todayStr) return `Сегодня, ${human}`;
     if (iso === tomorrowStr) return `Завтра, ${human}`;
 
-    // во вторник / в среду и т.п.
     const needsO = /^(в|с)/.test(weekday) ? "о" : "";
     return `В${needsO} ${weekday}, ${human}`;
   });
@@ -263,7 +229,6 @@ async function generateArticle(weatherData, timeOfDayRu) {
     todayRiga.getDate()
   )));
 
-  // Флаги для усиления «Совета от метеоролога»
   const maxWind = Math.max(...weatherData.wind_speed_10m_max.filter(v => typeof v === "number"));
   const maxGust = Math.max(...weatherData.wind_gusts_10m_max.filter(v => typeof v === "number"));
   const highPrecip = Math.max(...weatherData.precipitation_amount_max);
@@ -286,11 +251,11 @@ async function generateArticle(weatherData, timeOfDayRu) {
     temperature_max: weatherData.temperature_2m_max,
     apparent_min: weatherData.apparent_temperature_min,
     apparent_max: weatherData.apparent_temperature_max,
-    precipitation_amount_max: weatherData.precipitation_amount_max, // мм/ч
-    cloud_cover_max: weatherData.cloud_cover_max,                   // %
-    wind_speed_max: weatherData.wind_speed_10m_max,                 // м/с
-    wind_gusts_max: weatherData.wind_gusts_10m_max,                 // м/с
-    wind_direction_dominant: weatherData.wind_direction_dominant,   // {deg, compass}
+    precipitation_amount_max: weatherData.precipitation_amount_max,
+    cloud_cover_max: weatherData.cloud_cover_max,
+    wind_speed_max: weatherData.wind_speed_10m_max,
+    wind_gusts_max: weatherData.wind_gusts_10m_max,
+    wind_direction_dominant: weatherData.wind_direction_dominant,
     sunrise: weatherData.sunrise,
     sunset: weatherData.sunset
   };
@@ -376,14 +341,18 @@ function saveArticle(articleText, timeOfDay) {
     timeZone: "Europe/Riga"
   });
 
-  const firstLine = articleText.split("\n").find(l => l.trim().length > 0) || "";
-  const title = firstLine.replace(/[#*]/g, "").trim() || "Прогноз погоды в Риге";
+  const lines = articleText.split("\n");
+  const titleIndex = lines.findIndex(l => l.trim().length > 0);
+  
+  const title = titleIndex > -1 ? lines[titleIndex].trim() : "Прогноз погоды в Риге";
+  // ИСПРАВЛЕНО: Берем только текст ПОСЛЕ заголовка
+  const content = titleIndex > -1 ? lines.slice(titleIndex + 1).join("\n").trim() : articleText;
 
   const articleJson = {
     title,
     date: displayDate,
     time: timeOfDay,
-    content: articleText
+    content: content
   };
 
   const archiveFileName = `article-${fileDate}-${timeOfDay}.json`;
