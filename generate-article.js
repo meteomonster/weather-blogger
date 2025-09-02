@@ -312,34 +312,6 @@ const topicData = {
           title: "Моря и океаны",
           prompt: "Поведай о загадочном исчезновении 'циклона-хамелеона' в Индийском океане в 2004 году, который внезапно появился и так же внезапно пропал. Расскажи, как необычные погодные условия могли способствовать такому явлению."
       }
-  ],
-  animals: [
-      {
-          title: "Погода и животные",
-          prompt: "Расскажи, как ежи предсказывают погоду. Объясни, почему их активность и поведение могут быть связаны с приближением холодов, и дай этому научное объяснение."
-      },
-      {
-          title: "Погода и животные",
-          prompt: "Опиши, как морские птицы используют ветер для длительных перелётов. Объясни, как они 'ловят' потоки воздуха, чтобы экономить энергию, и почему это делает их поведение идеальным индикатором ветровых условий."
-      },
-      {
-          title: "Погода и животные",
-          prompt: "Расскажи, почему лягушки и жабы квакают громче перед дождем. Объясни, как их чувствительность к влажности и давлению позволяет им реагировать на изменения погоды."
-      }
-  ],
-  toto: [
-      {
-          title: "История дня: Хроники Тото",
-          prompt: "Расскажи, как керн-терьер Тото попал в невероятную передрягу: он преследовал летящий лист, который унёс сильный порыв ветра, и заблудился в парке. Опиши его приключения и возвращение домой, подчеркнув, как ветер сыграл ключевую роль в этой истории."
-      },
-      {
-          title: "История дня: Хроники Тото",
-          prompt: "Поведай о том, как Тото, пытаясь поймать солнечного зайчика, случайно наткнулся на забытую в саду лейку. Дождь застал его врасплох, и он спрятался в ней, пока хозяин не нашел его. Опиши, как дождь и его последствия повлияли на это событие."
-      },
-      {
-          title: "История дня: Хроники Тото",
-          prompt: "Расскажи, как Тото обнаружил, что снег — это не просто холодная вода, а идеальный материал для игры. Опиши его весёлые приключения, когда он закапывался в сугробы и пытался поймать снежинки, и как это изменило его отношение к зимней погоде."
-      }
   ]
 };
 
@@ -383,9 +355,16 @@ async function generateArticle(weatherData, timeOfDayRu) {
   const mythologyTopic = topicData.mythology[topicIndex % topicData.mythology.length];
   const animalsTopic = topicData.animals[topicIndex % topicData.animals.length];
   const oceansTopic = topicData.oceans[topicIndex % topicData.oceans.length];
-  const totoTopic = topicData.toto[topicIndex % topicData.toto.length];
   const astronomyTopic = topicData.astronomy[topicIndex % topicData.astronomy.length];
-  const totalTopicsCount = topicData.mythology.length * topicData.animals.length * topicData.oceans.length * topicData.toto.length * topicData.astronomy.length;
+  
+  // NEW: Система генерации истории Тото
+  let totoStoryState = "";
+  try {
+      totoStoryState = fs.readFileSync('toto_story_state.json', 'utf-8');
+  } catch (e) {
+      // Если файл не найден, начинаем новую историю
+      totoStoryState = "Начните новую историю. Тото и его хозяин выходят на прогулку в ясный день. Неожиданно, погода резко меняется, и это приводит к началу их нового приключения.";
+  }
 
   // Сохраняем индекс для следующего запуска
   fs.writeFileSync('topic-index.json', JSON.stringify({ index: (topicIndex + 1) }), 'utf-8');
@@ -430,7 +409,7 @@ async function generateArticle(weatherData, timeOfDayRu) {
 ${mythologyTopic.title}
 ${animalsTopic.title}
 ${oceansTopic.title}
-${totoTopic.title}
+История дня: Хроники Тото
 ${astronomyTopic.title}
 Совет от метеоролога
 Мини-рубрика "Сегодня в истории"
@@ -446,7 +425,7 @@ ${astronomyTopic.title}
 — Погода и мифология: ${mythologyTopic.prompt}
 — Погода и животные: ${animalsTopic.prompt}
 — Моря и океаны: ${oceansTopic.prompt}
-— История дня: Хроники Тото: Напиши увлекательный рассказ объёмом около 150-200 слов, в котором главный герой — керн-терьер Тото. У Тото есть хозяин. В истории должны быть завязка, кульминация и развязка. Главный конфликт или приключение должно быть связано с погодным явлением. Обязательно используй слова 'собака', 'пёс' или 'друг человека'. Не используй 'пёсик'.
+— История дня: Хроники Тото: Напиши увлекательный рассказ объёмом около 150-200 слов. В нем должен быть керн-терьер Тото. У Тото есть хозяин. В истории должна быть завязка, кульминация и непредсказуемый финал, который является завязкой для следующей истории. Используй слова 'собака', 'пёс', 'друг человека'. Не используй 'пёсик'. Сюжет должен быть связан с погодным явлением. Продолжи историю, учитывая последнее событие: <TOTO_STORY_STATE>${totoStoryState}</TOTO_STORY_STATE>
 — Погода и астрономия: ${astronomyTopic.prompt}
 — Совет от метеоролога: 3–5 практических рекомендаций одним цельным абзацем (одежда/зонт/планирование дел/прогулки/велосипед/у воды и т.п.). Учти подсказки ниже.
 — "Сегодня в истории": используй ровно этот текст — он уже готов и проверен.
@@ -479,7 +458,16 @@ ${JSON.stringify(dataPayload)}
 
   try {
     const result = await model.generateContent(prompt);
-    return sanitizeArticle(result.response.text());
+    const generatedText = sanitizeArticle(result.response.text());
+
+    // NEW: Извлекаем последнее предложение для сохранения состояния
+    const sentences = generatedText.split(/\. |\? |! /);
+    const lastSentence = sentences[sentences.length - 1].trim();
+    if (lastSentence.length > 5) {
+        fs.writeFileSync('toto_story_state.json', JSON.stringify(lastSentence), 'utf-8');
+    }
+
+    return generatedText;
   } catch (error) {
     console.error("Ошибка при генерации статьи моделью Gemini:", error.message);
     throw new Error("Ошибка генерации текста.");
