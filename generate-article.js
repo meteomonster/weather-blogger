@@ -201,16 +201,20 @@ async function getHistoricalRecord(date) {
 
 // 6) NEW: Fetch global extreme weather events
 async function getGlobalEvents() {
-  const today = new Date();
-  const isoDate = today.toISOString().split('T')[0];
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(now.getUTCDate()).padStart(2, '0');
+
   const events = {
     earthquakes: [],
-    hurricanes: []
+    tropical_cyclones: [], // Ураганы, тайфуны, циклоны
+    tornadoes: []
   };
 
   // Fetch earthquake data (magnitude >= 5.0)
   try {
-    const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${isoDate}T00:00:00&endtime=${isoDate}T23:59:59&minmagnitude=5.0`;
+    const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${year}-${month}-${day}T00:00:00&endtime=${year}-${month}-${day}T23:59:59&minmagnitude=5.0`;
     const { data } = await axios.get(eqUrl, { timeout: 10000 });
     events.earthquakes = data.features.map(f => ({
       magnitude: f.properties.mag,
@@ -233,8 +237,7 @@ async function getGlobalEvents() {
     };
 
     if (data && data.storms) {
-      events.hurricanes = data.storms.map(storm => {
-        // Extract wind speed in knots from intensity string, e.g., "70 KT"
+      events.tropical_cyclones = data.storms.map(storm => {
         const intensityMatch = storm.intensity ? storm.intensity.match(/(\d+)\s*KT/) : null;
         const windSpeedKnots = intensityMatch ? parseInt(intensityMatch[1], 10) : 0;
         const windSpeedKmh = Math.round(windSpeedKnots * 1.852);
@@ -247,8 +250,27 @@ async function getGlobalEvents() {
       });
     }
   } catch (e) {
-    console.warn("Не удалось получить данные об ураганах от NOAA:", e.message);
+    console.warn("Не удалось получить данные о тропических циклонах от NOAA:", e.message);
   }
+
+  // Fetch active tornado warnings (primarily US data from Iowa Environmental Mesonet)
+  try {
+    const startTime = `${year}-${month}-${day}T00:00:00Z`;
+    const endTime = now.toISOString();
+    const tornadoUrl = `https://mesonet.agron.iastate.edu/api/1/sbw_by_time.geojson?sts=${startTime}&ets=${endTime}&phenomena=TO`;
+    const { data } = await axios.get(tornadoUrl, { timeout: 15000 });
+
+    if (data && data.features) {
+      events.tornadoes = data.features.map(f => ({
+        location: f.properties.lsr_provider, // e.g., "National Weather Service Des Moines IA"
+        time: new Date(f.properties.issue),
+        details: `Предупреждение о торнадо действует до ${new Date(f.properties.expire).toLocaleTimeString('ru-RU', {timeZone: 'UTC'})} UTC.`
+      }));
+    }
+  } catch (e) {
+    console.warn("Не удалось получить данные о торнадо от IEM:", e.message);
+  }
+
 
   return events;
 }
@@ -347,7 +369,7 @@ async function generateArticle(weatherData, timeOfDayRu) {
 
 ДЕТАЛИ СОДЕРЖАНИЯ:
 — Вступление: дружелюбное приветствие, создай настроение и плавно подведи к главной теме недели.
-— Экстремальные события в мире сегодня: Используй данные из <DATA_JSON> для описания землетрясений, ураганов и других крупных явлений. Опиши их, указав ключевые параметры (магнитуда, местоположение, скорость ветра). Объясни, как эти события, хотя и далеко, являются частью глобальной атмосферной и геофизической циркуляции.
+— Экстремальные события в мире сегодня: Используй данные из <DATA_JSON> для описания землетрясений, тропических циклонов (ураганов, тайфунов) и торнадо. Если есть данные о торнадо, обязательно упомяни их, указав местоположение и время. Опиши все события, указав ключевые параметры (магнитуда, местоположение, скорость ветра). Объясни, как эти события, хотя и далеко, являются частью глобальной атмосферной и геофизической циркуляции.
 — Обзор погоды: опиши происхождение и положение барических центров (циклон/антициклон), связанные фронты (тёплый/холодный), адвекцию воздушных масс (откуда и куда идёт воздух), барический градиент и его влияние на ветер, роль Балтийского моря и суши. Укажи, как это отразится на температуре, облачности, вероятности и характере осадков, видимости, ветре и его порывах.
 — Детальный прогноз по дням: для каждого из ближайших дней используй минимум 4–6 предложений. Дай ощущение «живого» дня: утро/день/вечер/ночь (если уместно), когда возможны «световые окна» без осадков, где погода будет комфортна (например, для прогулки у воды или парка), отметь направление ветра словами (используй компасные стороны из данных), укажи порывы, если они заметные (≥10 м/с), и крупные колебания облачности.
 — Почему так, а не иначе: объясни механику происходящего простым языком (на уровне популярной метеорологии), 5–7 предложений.
@@ -444,3 +466,4 @@ function saveArticle(articleText, timeOfDay) {
     process.exit(1);
   }
 })();
+
