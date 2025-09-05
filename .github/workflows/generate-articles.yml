@@ -2,9 +2,11 @@ name: Generate weather articles
 
 on:
   schedule:
-    # UTC: 04:00 и 16:00 → Рига: 07:00 и 19:00 (летом)
-    - cron: '0 4 * * *'
-    - cron: '0 16 * * *'
+    # ИЗМЕНЕНО: Новое расписание
+    # UTC: 03:30 → Рига: 06:30 (летом, UTC+3)
+    - cron: '30 3 * * *'
+    # UTC: 15:30 → Рига: 18:30 (летом, UTC+3)
+    - cron: '30 15 * * *'
   # Позволяет запускать воркфлоу вручную из вкладки Actions на GitHub
   workflow_dispatch:
 
@@ -30,8 +32,7 @@ jobs:
           node-version: '20'
           cache: 'npm' # Ускоряет установку
 
-      # Шаг 3: Устанавливаем зависимости (ИСПРАВЛЕННЫЙ БЛОК)
-      # Используем npm install, чтобы избежать ошибок с package-lock.json
+      # Шаг 3: Устанавливаем зависимости
       - name: Install dependencies
         run: npm install
 
@@ -79,4 +80,3 @@ jobs:
           default_author: github_actions
           # Автоматически отправляем коммит в репозиторий
           push: true
-          
