@@ -3,10 +3,10 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 
 /**
- * generate-article.js v3.1 (Narrative-Driven, Bugfix)
+ * generate-article.js v3.2 (Historical Data Fix)
  * — Почасовой MET.NO → дневные показатели на 7 дней
- * — Исторические рекорды для сегодняшнего календарного дня
- * — LIVE-лента: USGS, NOAA/NHC, IEM
+ * — ИСПРАВЛЕНО: Корректное получение исторических рекордов строго для текущего календарного дня
+ * — LIVE-лента: USGS, NOAA/NHC
  * — Предварительный анализ данных для выявления ключевых погодных событий
  * — Гибкий промпт, ориентированный на повествование
  * — Генерация Gemini, сохранение JSON
@@ -41,7 +41,6 @@ function toISODateInTZ(date, tz) {
   const s = new Date(date).toLocaleString("sv-SE", { timeZone: tz });
   return s.slice(0, 10);
 }
-
 function sanitizeArticle(text) {
   if (!text) return "";
   let t = String(text);
@@ -50,7 +49,6 @@ function sanitizeArticle(text) {
   t = t.replace(/^\s+/, "").replace(/\s+$/, "");
   return t;
 }
-
 function circularMeanDeg(values) {
   const rad = values
     .filter(v => typeof v === "number" && !Number.isNaN(v))
@@ -62,17 +60,13 @@ function circularMeanDeg(values) {
   if (deg < 0) deg += 360;
   return deg;
 }
-
 function degToCompass(d) {
   if (d == null) return null;
   const dirs = ["С","ССВ","СВ","ВСВ","В","ВЮВ","ЮВ","ЮЮВ","Ю","ЮЮЗ","ЮЗ","ЗЮЗ","З","ЗСЗ","СЗ","ССЗ"];
   const ix = Math.round((d % 360) / 22.5) % 16;
   return dirs[ix];
 }
-
 const roundArr = arr => arr.map(v => (typeof v === "number" ? Math.round(v) : null));
-
-// ИСПРАВЛЕНО: Возвращена недостающая функция
 function buildDateLabels(dailyTime) {
   const tz = "Europe/Riga";
   const todayStr = toISODateInTZ(new Date(), tz);
@@ -151,22 +145,42 @@ async function getWeatherData() {
 }
 
 /* =========================
- * 5) Получение исторических рекордов
+ * 5) Получение исторических рекордов (ИСПРАВЛЕНО)
  * ========================= */
 async function getHistoricalRecord(date) {
   try {
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const day = String(date.getUTCDate()).padStart(2, "0");
     const url = `https://archive-api.open-meteo.com/v1/archive?latitude=56.95&longitude=24.1&start_date=1979-${month}-${day}&end_date=${date.getUTCFullYear() - 1}-${month}-${day}&daily=temperature_2m_max,temperature_2m_min`;
-    const { data } = await axios.get(url, { timeout: 20000 });
-    const t = data?.daily?.time || [];
+    
+    const { data } = await axios.get(url, { 
+        headers: { "User-Agent": "WeatherBloggerApp/1.0 (+https://github.com/meteomonster/weather-blogger)" },
+        timeout: 20000 
+    });
+
+    const time = data?.daily?.time || [];
     const tmax = data?.daily?.temperature_2m_max || [];
     const tmin = data?.daily?.temperature_2m_min || [];
-    if (!t.length) return { text: "Нет надёжных исторических данных для этой даты.", data: null };
-    const recs = t.map((iso, i) => ({ year: Number(iso.slice(0, 4)), max: tmax[i], min: tmin[i] })).filter(r => r.max != null && r.min != null);
-    if (!recs.length) return { text: "Недостаточно исторических данных для этой даты.", data: null };
+
+    if (!time.length) return { text: "Нет надёжных исторических данных для этой даты.", data: null };
+
+    // ИСПРАВЛЕНО: Добавлен жёсткий фильтр, чтобы гарантировать, что мы используем данные только для нужного дня.
+    const recs = time.map((iso, i) => ({
+      year: Number(iso.slice(0, 4)),
+      month: iso.slice(5, 7),
+      day: iso.slice(8, 10),
+      max: tmax[i],
+      min: tmin[i]
+    })).filter(r => r.month === month && r.day === day && r.max != null && r.min != null);
+
+    if (!recs.length) {
+        console.warn("API вернуло данные, но после фильтрации по дате ничего не осталось.");
+        return { text: "Недостаточно исторических данных для этой даты.", data: null };
+    }
+    
     const recordMax = recs.reduce((a, b) => (a.max > b.max ? a : b));
     const recordMin = recs.reduce((a, b) => (a.min < b.min ? a : b));
+    
     return {
       text: `Самый тёплый в этот день: ${recordMax.year} год, ${recordMax.max.toFixed(1)}°C. Самый холодный: ${recordMin.year} год, ${recordMin.min.toFixed(1)}°C.`,
       data: { max: recordMax, min: recordMin }
@@ -183,7 +197,7 @@ async function getHistoricalRecord(date) {
 async function getGlobalEvents() {
     const now = new Date();
     const todayUTC = now.toISOString().slice(0, 10);
-    const events = { earthquakes: [], tropical_cyclones: [], tornadoes: [] };
+    const events = { earthquakes: [], tropical_cyclones: [] };
     try {
       const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${todayUTC}T00:00:00&endtime=${todayUTC}T23:59:59&minmagnitude=5.0`;
       const { data } = await axios.get(eqUrl, { timeout: 15000 });
