@@ -3,13 +3,13 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 
 /**
- * generate-article.js v3.0 (Narrative-Driven)
+ * generate-article.js v3.1 (Narrative-Driven, Bugfix)
  * — Почасовой MET.NO → дневные показатели на 7 дней
  * — Исторические рекорды для сегодняшнего календарного дня
  * — LIVE-лента: USGS, NOAA/NHC, IEM
- * — НОВИНКА: Предварительный анализ данных для выявления ключевых погодных событий (рекорды, перепады температур)
- * — НОВИНКА: Гибкий промпт, ориентированный на повествование, а не на шаблон
- * — Генерация Gemini (с fallback), сохранение JSON
+ * — Предварительный анализ данных для выявления ключевых погодных событий
+ * — Гибкий промпт, ориентированный на повествование
+ * — Генерация Gemini, сохранение JSON
  */
 
 /* =========================
@@ -41,6 +41,7 @@ function toISODateInTZ(date, tz) {
   const s = new Date(date).toLocaleString("sv-SE", { timeZone: tz });
   return s.slice(0, 10);
 }
+
 function sanitizeArticle(text) {
   if (!text) return "";
   let t = String(text);
@@ -49,6 +50,7 @@ function sanitizeArticle(text) {
   t = t.replace(/^\s+/, "").replace(/\s+$/, "");
   return t;
 }
+
 function circularMeanDeg(values) {
   const rad = values
     .filter(v => typeof v === "number" && !Number.isNaN(v))
@@ -60,13 +62,31 @@ function circularMeanDeg(values) {
   if (deg < 0) deg += 360;
   return deg;
 }
+
 function degToCompass(d) {
   if (d == null) return null;
   const dirs = ["С","ССВ","СВ","ВСВ","В","ВЮВ","ЮВ","ЮЮВ","Ю","ЮЮЗ","ЮЗ","ЗЮЗ","З","ЗСЗ","СЗ","ССЗ"];
   const ix = Math.round((d % 360) / 22.5) % 16;
   return dirs[ix];
 }
+
 const roundArr = arr => arr.map(v => (typeof v === "number" ? Math.round(v) : null));
+
+// ИСПРАВЛЕНО: Возвращена недостающая функция
+function buildDateLabels(dailyTime) {
+  const tz = "Europe/Riga";
+  const todayStr = toISODateInTZ(new Date(), tz);
+  const tomorrowStr = toISODateInTZ(new Date(Date.now() + 864e5), tz);
+  return dailyTime.map((iso) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    const human = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: tz }).format(d);
+    const weekday = new Intl.DateTimeFormat("ru-RU", { weekday: "long", timeZone: tz }).format(d).toLowerCase();
+    if (iso === todayStr) return `Сегодня, ${human}`;
+    if (iso === tomorrowStr) return `Завтра, ${human}`;
+    const needsO = /^(в|с)/.test(weekday) ? "о" : "";
+    return `В${needsO} ${weekday}, ${human}`;
+  });
+}
 
 /* =========================
  * 4) Получение прогноза MET.NO
@@ -100,7 +120,6 @@ async function getWeatherData() {
     const processed = {
       time: forecastDays,
       temperature_2m_max: [], temperature_2m_min: [],
-      apparent_temperature_max: [], apparent_temperature_min: [],
       wind_speed_10m_max: [], wind_gusts_10m_max: [],
       wind_direction_dominant: [],
       precipitation_amount_max: [], cloud_cover_max: []
@@ -113,10 +132,8 @@ async function getWeatherData() {
       const clouds = arr.map(a => a.cloud).filter(n => typeof n === "number");
       const dirs = arr.map(a => a.wind_dir).filter(n => typeof n === "number");
       const pr1h = arr.map(a => a.precip_next1h).filter(n => typeof n === "number");
-      const tMax = temps.length ? Math.max(...temps) : null;
-      const tMin = temps.length ? Math.min(...temps) : null;
-      processed.temperature_2m_max.push(tMax);
-      processed.temperature_2m_min.push(tMin);
+      processed.temperature_2m_max.push(temps.length ? Math.max(...temps) : null);
+      processed.temperature_2m_min.push(temps.length ? Math.min(...temps) : null);
       processed.wind_speed_10m_max.push(winds.length ? Math.max(...winds) : null);
       processed.wind_gusts_10m_max.push(gusts.length ? Math.max(...gusts) : null);
       processed.cloud_cover_max.push(clouds.length ? Math.max(...clouds) : null);
@@ -134,7 +151,7 @@ async function getWeatherData() {
 }
 
 /* =========================
- * 5) Получение исторических рекордов (возвращает объект для анализа)
+ * 5) Получение исторических рекордов
  * ========================= */
 async function getHistoricalRecord(date) {
   try {
@@ -164,32 +181,32 @@ async function getHistoricalRecord(date) {
  * 6) Получение LIVE-ленты экстремальных событий
  * ========================= */
 async function getGlobalEvents() {
-  const now = new Date();
-  const todayUTC = now.toISOString().slice(0, 10);
-  const events = { earthquakes: [], tropical_cyclones: [], tornadoes: [] };
-  try {
-    const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${todayUTC}T00:00:00&endtime=${todayUTC}T23:59:59&minmagnitude=5.0`;
-    const { data } = await axios.get(eqUrl, { timeout: 15000 });
-    events.earthquakes = (data?.features || []).map(f => ({ magnitude: f.properties?.mag, location: f.properties?.place }));
-  } catch (e) { console.warn("Не удалось получить данные о землетрясениях:", e.message); }
-  try {
-    const hurricaneUrl = `https://www.nhc.noaa.gov/CurrentStorms.json`;
-    const { data } = await axios.get(hurricaneUrl, { timeout: 15000 });
-    const basinMap = { AL: "Атлантический океан", EP: "восточная часть Тихого океана", CP: "центральная часть Тихого океана" };
-    if (data?.storms) {
-      events.tropical_cyclones = data.storms.map(storm => ({
-        name: `${storm.classification} «${storm.name}»`,
-        windSpeedKmh: Math.round((parseInt(storm.intensity.match(/(\d+)\s*KT/)?.[1] || '0', 10)) * 1.852),
-        location: basinMap[storm.basin] || storm.basin
-      }));
-    }
-  } catch (e) { console.warn("Не удалось получить данные о тропических циклонах от NOAA:", e.message); }
-  return events;
+    const now = new Date();
+    const todayUTC = now.toISOString().slice(0, 10);
+    const events = { earthquakes: [], tropical_cyclones: [], tornadoes: [] };
+    try {
+      const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${todayUTC}T00:00:00&endtime=${todayUTC}T23:59:59&minmagnitude=5.0`;
+      const { data } = await axios.get(eqUrl, { timeout: 15000 });
+      events.earthquakes = (data?.features || []).map(f => ({ magnitude: f.properties?.mag, location: f.properties?.place }));
+    } catch (e) { console.warn("Не удалось получить данные о землетрясениях:", e.message); }
+    try {
+      const hurricaneUrl = `https://www.nhc.noaa.gov/CurrentStorms.json`;
+      const { data } = await axios.get(hurricaneUrl, { timeout: 15000 });
+      const basinMap = { AL: "Атлантический океан", EP: "восточная часть Тихого океана", CP: "центральная часть Тихого океана" };
+      if (data?.storms) {
+        events.tropical_cyclones = data.storms.map(storm => ({
+          name: `${storm.classification} «${storm.name}»`,
+          windSpeedKmh: Math.round((parseInt(storm.intensity.match(/(\d+)\s*KT/)?.[1] || '0', 10)) * 1.852),
+          location: basinMap[storm.basin] || storm.basin
+        }));
+      }
+    } catch (e) { console.warn("Не удалось получить данные о тропических циклонах от NOAA:", e.message); }
+    return events;
 }
 
-// ========================================================================
-// НОВЫЙ БЛОК: Предварительный анализ данных для поиска "изюминок"
-// ========================================================================
+/* =========================
+ * 7) Предварительный анализ данных
+ * ========================= */
 function analyzeWeatherData(weatherData, historicalRecord) {
     const insights = [];
     const forecastTodayMax = weatherData.temperature_2m_max_int[0];
@@ -205,7 +222,7 @@ function analyzeWeatherData(weatherData, historicalRecord) {
         }
     }
 
-    // 2. Поиск резких перепадов температур в прогнозе
+    // 2. Поиск резких перепадов температур
     for (let i = 0; i < weatherData.time.length - 1; i++) {
         const tempToday = weatherData.temperature_2m_max_int[i];
         const tempTomorrow = weatherData.temperature_2m_max_int[i+1];
@@ -237,9 +254,9 @@ function analyzeWeatherData(weatherData, historicalRecord) {
 }
 
 /* =========================
- * 7) Генерация (НОВЫЙ ПРОМПТ)
+ * 8) Генерация статьи
  * ========================= */
-const MODEL_PRIMARY = "gemini-1.5-flash-latest"; // Используем стабильную версию для надёжности
+const MODEL_PRIMARY = "gemini-1.5-flash-latest";
 async function generateArticle(weatherData, timeOfDayRu) {
   const tz = "Europe/Riga";
   const todayRiga = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
@@ -316,7 +333,7 @@ ${JSON.stringify(dataPayload, null, 2)}
 }
 
 /* =========================
- * 8) Сохранение результата
+ * 9) Сохранение результата
  * ========================= */
 function saveArticle(articleText, timeOfDay, modelUsed) {
   const now = new Date();
@@ -336,7 +353,7 @@ function saveArticle(articleText, timeOfDay, modelUsed) {
 }
 
 /* =========================
- * 9) Основной запуск
+ * 10) Основной запуск
  * ========================= */
 (async () => {
   console.log(`🚀 Запуск генерации статьи (${timeOfDay})...`);
