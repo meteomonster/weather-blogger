@@ -399,7 +399,7 @@ function saveOutputs({ articleText, modelUsed, forecast, climo, insights, curren
     const prompt = buildPrompt({ forecast, climo, insights, current, events, dailyFacts, timeOfDayRu });
     const { text, modelUsed } = await generateWithModels(prompt);
 
-    saveOutputs({ articleText, text, modelUsed, forecast, climo, insights, current, events, dailyFacts });
+    saveOutputs({ articleText: text, modelUsed, forecast, climo, insights, current, events, dailyFacts });
 
     console.log("✨ Готово.");
   } catch (e) {
@@ -407,3 +407,4 @@ function saveOutputs({ articleText, modelUsed, forecast, climo, insights, curren
     process.exit(1);
   }
 })();
+
