@@ -72,7 +72,7 @@ async function safeFetch(url, options = {}, timeout = 15000) {
 
 /** Получение прогноза, текущей погоды и данных о солнце одним запросом */
 async function getComprehensiveForecast(lat = LAT, lon = LON) {
-    const vars = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,daylight_duration,uv_index_max,precipitation_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,dominant_wind_direction_10m";
+    const vars = "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,sunrise,sunset,daylight_duration,uv_index_max,precipitation_sum,precipitation_hours,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant";
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=${vars}&timezone=${encodeURIComponent(TZ)}&wind_speed_unit=ms&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_gusts_10m`;
 
     const data = await safeFetch(url, {}, 20000);
@@ -89,7 +89,7 @@ async function getComprehensiveForecast(lat = LAT, lon = LON) {
         pr_prob: d.precipitation_probability_max?.[i] ?? 0,
         ws_max: d.wind_speed_10m_max?.[i] ?? null,
         wg_max: d.wind_gusts_10m_max?.[i] ?? null,
-        wd_dom: d.dominant_wind_direction_10m?.[i] ?? null,
+        wd_dom: d.wind_direction_10m_dominant?.[i] ?? null,
         uv_max: d.uv_index_max?.[i] ?? null,
         wc: d.weather_code?.[i] ?? null,
         sunrise_iso: d.sunrise?.[i] ?? null,
@@ -468,3 +468,4 @@ function saveOutputs({ articleText, modelUsed, forecast, climo, insights, events
         process.exit(1);
     }
 })();
+
