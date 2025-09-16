@@ -1,489 +1,391 @@
-// generate-article.js (v5 — Единый API, чистая архитектура, сторителлинг)
-//
-// Требуется: Node 18+ и "type": "module" в package.json
-// Зависимости: @google/generative-ai
-//
-// ENV:
-//   BLOG_LAT, BLOG_LON, BLOG_PLACE, BLOG_TZ
-//   GEMINI_API_KEY, GEMINI_MODEL (опц.)
-//
-// Запуск: node generate-article.js [morning|afternoon|evening|night] [md|txt]
-//
-// Автор: MeteomonsteR (доработано Gemini)
-
+import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 
-/* ──────────────────────────────────────────────────────────────────────────
-   0) НАСТРОЙКИ
-   ────────────────────────────────────────────────────────────────────────── */
-const LAT = Number(process.env.BLOG_LAT || 56.95);
-const LON = Number(process.env.BLOG_LON || 24.10);
-const PLACE_LABEL = process.env.BLOG_PLACE || "Рига, Латвия";
-const TZ = process.env.BLOG_TZ || "Europe/Riga";
-const LOCALE = "ru-RU";
-const USER_AGENT = "WeatherBloggerApp/5.0 (+https://github.com/meteomonster)";
+/**
+ * generate-article.js v3.2 (Historical Data Fix)
+ * — Почасовой MET.NO → дневные показатели на 7 дней
+ * — ИСПРАВЛЕНО: Корректное получение исторических рекордов строго для текущего календарного дня
+ * — LIVE-лента: USGS, NOAA/NHC
+ * — Предварительный анализ данных для выявления ключевых погодных событий
+ * — Гибкий промпт, ориентированный на повествование
+ * — Генерация Gemini, сохранение JSON
+ */
 
-// Определение времени суток и формата вывода из аргументов командной строки
-const timeOfDayArg = (process.argv[2] || "morning").toLowerCase();
-const outputFormatArg = (process.argv[3] || "md").toLowerCase();
+/* =========================
+ * 0) Настройки
+ * ========================= */
+const SHOW_SOURCE_URLS = false;
 
-const TIME_OF_DAY_CONFIG = {
-    morning: { ru: "утренний", alias: "утро" },
-    afternoon: { ru: "дневной", alias: "день" },
-    evening: { ru: "вечерний", alias: "вечер" },
-    night: { ru: "ночной", alias: "ночь" },
-};
-
-const timeOfDay = TIME_OF_DAY_CONFIG[timeOfDayArg] ? timeOfDayArg : "morning";
-const timeOfDayRu = TIME_OF_DAY_CONFIG[timeOfDay].ru;
-const timeOfDayAlias = TIME_OF_DAY_CONFIG[timeOfDay].alias;
-const OUTPUT_FORMAT = ['md', 'txt'].includes(outputFormatArg) ? outputFormatArg : 'md';
-
-// Настройка Gemini API
+/* =========================
+ * 1) Инициализация Gemini
+ * ========================= */
 const API_KEY = process.env.GEMINI_API_KEY;
 if (!API_KEY) {
-    console.error("❌ Ошибка: переменная окружения GEMINI_API_KEY не задана.");
-    process.exit(1);
+  console.error("Ошибка: Секрет GEMINI_API_KEY не найден.");
+  process.exit(1);
 }
 const genAI = new GoogleGenerativeAI(API_KEY);
-const MODEL_PRIMARY = process.env.GEMINI_MODEL || "gemini-1.5-pro-latest";
-const MODEL_FALLBACKS = ["gemini-1.5-flash-latest"];
 
+/* =========================
+ * 2) Параметры запуска
+ * ========================= */
+const timeOfDay = (process.argv[2] || "morning").toLowerCase();
+const TOD_RU = { morning: "утренний", afternoon: "дневной", evening: "вечерний", night: "ночной" };
+const timeOfDayRu = TOD_RU[timeOfDay] || timeOfDay;
 
-/* ──────────────────────────────────────────────────────────────────────────
-   1) ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-   ────────────────────────────────────────────────────────────────────────── */
+/* =========================
+ * 3) Утилиты
+ * ========================= */
+function toISODateInTZ(date, tz) {
+  const s = new Date(date).toLocaleString("sv-SE", { timeZone: tz });
+  return s.slice(0, 10);
+}
+function sanitizeArticle(text) {
+  if (!text) return "";
+  let t = String(text);
+  t = t.replace(/```[\s\S]*?```/g, "");
+  t = t.replace(/[>#*_`]+/g, "");
+  t = t.replace(/^\s+/, "").replace(/\s+$/, "");
+  return t;
+}
+function circularMeanDeg(values) {
+  const rad = values
+    .filter(v => typeof v === "number" && !Number.isNaN(v))
+    .map(v => (v * Math.PI) / 180);
+  if (!rad.length) return null;
+  const x = rad.reduce((acc, r) => acc + Math.cos(r), 0) / rad.length;
+  const y = rad.reduce((acc, r) => acc + Math.sin(r), 0) / rad.length;
+  let deg = (Math.atan2(y, x) * 180) / Math.PI;
+  if (deg < 0) deg += 360;
+  return deg;
+}
+function degToCompass(d) {
+  if (d == null) return null;
+  const dirs = ["С","ССВ","СВ","ВСВ","В","ВЮВ","ЮВ","ЮЮВ","Ю","ЮЮЗ","ЮЗ","ЗЮЗ","З","ЗСЗ","СЗ","ССЗ"];
+  const ix = Math.round((d % 360) / 22.5) % 16;
+  return dirs[ix];
+}
+const roundArr = arr => arr.map(v => (typeof v === "number" ? Math.round(v) : null));
+function buildDateLabels(dailyTime) {
+  const tz = "Europe/Riga";
+  const todayStr = toISODateInTZ(new Date(), tz);
+  const tomorrowStr = toISODateInTZ(new Date(Date.now() + 864e5), tz);
+  return dailyTime.map((iso) => {
+    const d = new Date(`${iso}T00:00:00Z`);
+    const human = new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: tz }).format(d);
+    const weekday = new Intl.DateTimeFormat("ru-RU", { weekday: "long", timeZone: tz }).format(d).toLowerCase();
+    if (iso === todayStr) return `Сегодня, ${human}`;
+    if (iso === tomorrowStr) return `Завтра, ${human}`;
+    const needsO = /^(в|с)/.test(weekday) ? "о" : "";
+    return `В${needsO} ${weekday}, ${human}`;
+  });
+}
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const isoDateInTZ = (date, tz) => new Date(date).toLocaleString("sv-SE", { timeZone: tz }).slice(0, 10);
-const isFiniteNum = (x) => typeof x === "number" && Number.isFinite(x);
-const round = (x, p = 0) => isFiniteNum(x) ? Number(x.toFixed(p)) : null;
-const dayOfYearKey = (iso) => iso?.slice(5, 10);
-const degToCompass = (d) => {
-    if (!isFiniteNum(d)) return null;
-    const dirs = ["С", "ССВ", "СВ", "ВСВ", "В", "ВЮВ", "ЮВ", "ЮЮВ", "Ю", "ЮЮЗ", "ЮЗ", "ЗЮЗ", "З", "ЗСЗ", "СЗ", "ССЗ"];
-    return dirs[Math.round((d % 360) / 22.5) % 16];
-};
-const wmoCodeToText = (code) => {
-    const map = { 0: "Ясно", 1: "Преимущественно ясно", 2: "Переменная облачность", 3: "Облачно", 45: "Туман", 48: "Изморозь", 51: "Лёгкая морось", 53: "Умеренная морось", 55: "Сильная морось", 61: "Лёгкий дождь", 63: "Умеренный дождь", 65: "Сильный дождь", 71: "Лёгкий снег", 73: "Умеренный снег", 75: "Сильный снег", 80: "Лёгкие ливни", 81: "Умеренные ливни", 82: "Сильные ливни", 95: "Гроза", 96: "Гроза с градом" };
-    return map[code] || "Неизвестное явление";
-};
-const seedFromDate = () => Number(isoDateInTZ(new Date(), TZ).replace(/-/g, "")) % 2147483647;
-const pickBySeed = (arr, seed) => arr?.length ? arr[seed % arr.length] : null;
-
-/**
- * Безопасная обёртка для fetch с таймаутом и обработкой ошибок.
- * @param {string} url - URL для запроса.
- * @param {object} options - Опции для fetch.
- * @param {number} timeout - Таймаут в миллисекундах.
- * @returns {Promise<object|null>} - JSON-ответ или null в случае ошибки.
- */
-async function safeFetch(url, options = {}, timeout = 20000) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
-    try {
-        const response = await fetch(url, { ...options, signal: controller.signal, headers: { 'User-Agent': USER_AGENT, ...options.headers } });
-        clearTimeout(timeoutId);
-        if (!response.ok) throw new Error(`HTTP ${response.status} - ${response.statusText}`);
-        return await response.json();
-    } catch (e) {
-        clearTimeout(timeoutId);
-        console.warn(`⚠️ safeFetch для ${url} не удался:`, e.message);
-        return null;
+/* =========================
+ * 4) Получение прогноза MET.NO
+ * ========================= */
+async function getWeatherData() {
+  const lat = 56.95, lon = 24.1;
+  const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`;
+  try {
+    const response = await axios.get(url, {
+      headers: { "User-Agent": "WeatherBloggerApp/1.0 (+https://github.com/meteomonster/weather-blogger)" },
+      timeout: 20000
+    });
+    const timeseries = response.data?.properties?.timeseries || [];
+    if (!timeseries.length) throw new Error("Пустой timeseries в ответе MET.NO");
+    const byDay = new Map();
+    for (const entry of timeseries) {
+      const day = entry.time.slice(0, 10);
+      const inst = entry?.data?.instant?.details || {};
+      const next1 = entry?.data?.next_1_hours || null;
+      if (!byDay.has(day)) byDay.set(day, []);
+      byDay.get(day).push({
+        air_temperature: inst.air_temperature,
+        wind_speed: inst.wind_speed,
+        wind_gust: inst.wind_speed_of_gust,
+        wind_dir: inst.wind_from_direction,
+        cloud: inst.cloud_area_fraction,
+        precip_next1h: next1?.details?.precipitation_amount ?? null
+      });
     }
+    const forecastDays = Array.from(byDay.keys()).sort().slice(0, 7);
+    const processed = {
+      time: forecastDays,
+      temperature_2m_max: [], temperature_2m_min: [],
+      wind_speed_10m_max: [], wind_gusts_10m_max: [],
+      wind_direction_dominant: [],
+      precipitation_amount_max: [], cloud_cover_max: []
+    };
+    for (const day of forecastDays) {
+      const arr = byDay.get(day) || [];
+      const temps = arr.map(a => a.air_temperature).filter(n => typeof n === "number");
+      const winds = arr.map(a => a.wind_speed).filter(n => typeof n === "number");
+      const gusts = arr.map(a => a.wind_gust).filter(n => typeof n === "number");
+      const clouds = arr.map(a => a.cloud).filter(n => typeof n === "number");
+      const dirs = arr.map(a => a.wind_dir).filter(n => typeof n === "number");
+      const pr1h = arr.map(a => a.precip_next1h).filter(n => typeof n === "number");
+      processed.temperature_2m_max.push(temps.length ? Math.max(...temps) : null);
+      processed.temperature_2m_min.push(temps.length ? Math.min(...temps) : null);
+      processed.wind_speed_10m_max.push(winds.length ? Math.max(...winds) : null);
+      processed.wind_gusts_10m_max.push(gusts.length ? Math.max(...gusts) : null);
+      processed.cloud_cover_max.push(clouds.length ? Math.max(...clouds) : null);
+      const domDir = circularMeanDeg(dirs);
+      processed.wind_direction_dominant.push({ deg: domDir, compass: domDir == null ? null : degToCompass(domDir) });
+      processed.precipitation_amount_max.push(pr1h.length ? Math.max(...pr1h) : 0);
+    }
+    processed.temperature_2m_max_int = roundArr(processed.temperature_2m_max);
+    processed.temperature_2m_min_int = roundArr(processed.temperature_2m_min);
+    return processed;
+  } catch (error) {
+    console.error("Не удалось получить данные о погоде от MET.NO:", error.response?.data || error.message);
+    throw new Error("Ошибка получения данных о погоде.");
+  }
 }
 
+/* =========================
+ * 5) Получение исторических рекордов (ИСПРАВЛЕНО)
+ * ========================= */
+async function getHistoricalRecord(date) {
+  try {
+    const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+    const day = String(date.getUTCDate()).padStart(2, "0");
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=56.95&longitude=24.1&start_date=1979-${month}-${day}&end_date=${date.getUTCFullYear() - 1}-${month}-${day}&daily=temperature_2m_max,temperature_2m_min`;
+    
+    const { data } = await axios.get(url, { 
+        headers: { "User-Agent": "WeatherBloggerApp/1.0 (+https://github.com/meteomonster/weather-blogger)" },
+        timeout: 20000 
+    });
 
-/* ──────────────────────────────────────────────────────────────────────────
-   2) СБОР ДАННЫХ
-   ────────────────────────────────────────────────────────────────────────── */
+    const time = data?.daily?.time || [];
+    const tmax = data?.daily?.temperature_2m_max || [];
+    const tmin = data?.daily?.temperature_2m_min || [];
 
-/**
- * Получает прогноз, текущую погоду и данные о солнце одним запросом к Open-Meteo.
- * @returns {Promise<object>} - Объект с прогнозом и текущими данными.
- */
-async function getOpenMeteoData(lat = LAT, lon = LON) {
-    const dailyVars = [
-        "weather_code", "temperature_2m_max", "temperature_2m_min",
-        "apparent_temperature_max", "apparent_temperature_min", "sunrise", "sunset",
-        "daylight_duration", "uv_index_max", "precipitation_sum",
-        "precipitation_probability_max", "wind_speed_10m_max", "wind_gusts_10m_max",
-        "wind_direction_10m_dominant"
-    ].join(',');
-    const currentVars = [
-        "temperature_2m", "apparent_temperature", "precipitation",
-        "weather_code", "wind_speed_10m", "wind_gusts_10m"
-    ].join(',');
+    if (!time.length) return { text: "Нет надёжных исторических данных для этой даты.", data: null };
 
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=${dailyVars}&current=${currentVars}&timezone=${encodeURIComponent(TZ)}&wind_speed_unit=ms`;
+    // ИСПРАВЛЕНО: Добавлен жёсткий фильтр, чтобы гарантировать, что мы используем данные только для нужного дня.
+    const recs = time.map((iso, i) => ({
+      year: Number(iso.slice(0, 4)),
+      month: iso.slice(5, 7),
+      day: iso.slice(8, 10),
+      max: tmax[i],
+      min: tmin[i]
+    })).filter(r => r.month === month && r.day === day && r.max != null && r.min != null);
 
-    const data = await safeFetch(url);
-    if (!data) throw new Error("Не удалось получить основной прогноз от Open-Meteo.");
-
-    // Обработка данных за 7 дней
-    const d = data.daily || {};
-    const days = (d.time || []).slice(0, 7).map((date, i) => ({
-        date,
-        t_max: d.temperature_2m_max?.[i] ?? null,
-        t_min: d.temperature_2m_min?.[i] ?? null,
-        t_max_app: d.apparent_temperature_max?.[i] ?? null,
-        t_min_app: d.apparent_temperature_min?.[i] ?? null,
-        pr_sum: d.precipitation_sum?.[i] ?? 0,
-        pr_prob: d.precipitation_probability_max?.[i] ?? 0,
-        ws_max: d.wind_speed_10m_max?.[i] ?? null,
-        wg_max: d.wind_gusts_10m_max?.[i] ?? null,
-        wd_dom: d.wind_direction_10m_dominant?.[i] ?? null,
-        uv_max: d.uv_index_max?.[i] ?? null,
-        wc: d.weather_code?.[i] ?? null,
-        sunrise_iso: d.sunrise?.[i] ?? null,
-        sunset_iso: d.sunset?.[i] ?? null,
-        daylight_sec: d.daylight_duration?.[i] ?? null,
-    }));
-
-    // Обработка текущих данных
-    const c = data.current || {};
-    const current = {
-        time: c.time ? `${c.time}:00` : new Date().toISOString(), // Добавляем секунды для корректного парсинга
-        t: c.temperature_2m ?? null, t_app: c.apparent_temperature ?? null,
-        ws: c.wind_speed_10m ?? null, wg: c.wind_gusts_10m ?? null,
-        pr: c.precipitation ?? 0, wc: c.weather_code ?? null,
-        tz: data.timezone || TZ
+    if (!recs.length) {
+        console.warn("API вернуло данные, но после фильтрации по дате ничего не осталось.");
+        return { text: "Недостаточно исторических данных для этой даты.", data: null };
+    }
+    
+    const recordMax = recs.reduce((a, b) => (a.max > b.max ? a : b));
+    const recordMin = recs.reduce((a, b) => (a.min < b.min ? a : b));
+    
+    return {
+      text: `Самый тёплый в этот день: ${recordMax.year} год, ${recordMax.max.toFixed(1)}°C. Самый холодный: ${recordMin.year} год, ${recordMin.min.toFixed(1)}°C.`,
+      data: { max: recordMax, min: recordMin }
     };
-
-    return { days, current, provider: "Open-Meteo" };
+  } catch (e) {
+    console.warn("Не удалось получить исторические данные:", e.message);
+    return { text: "Не удалось загрузить исторические данные для этой даты.", data: null };
+  }
 }
 
-/**
- * Получает климатические нормы и рекорды из архива Open-Meteo.
- * @returns {Promise<object>} - Объект с нормами и рекордами.
- */
-async function getClimoAndRecords(lat = LAT, lon = LON) {
-    const startNorm = 1991, endNorm = 2020;
-    const startRec = 1979, endRec = new Date().getUTCFullYear() - 1;
-
-    const fetchDailyRange = async (startY, endY) => {
-        const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${lat}&longitude=${lon}&start_date=${startY}-01-01&end_date=${endY}-12-31&daily=temperature_2m_max,temperature_2m_min&timezone=UTC`;
-        const data = await safeFetch(url, {}, 45000);
-        return data?.daily || {};
-    };
-
-    const [normData, recData] = await Promise.all([
-        fetchDailyRange(startNorm, endNorm),
-        fetchDailyRange(startRec, endRec)
-    ]);
-
-    const processData = (dailyData, isRecords) => {
-        const map = new Map();
-        if (!dailyData?.time) return {};
-        const { time, temperature_2m_max, temperature_2m_min } = dailyData;
-        for (let i = 0; i < time.length; i++) {
-            const mmdd = time[i].slice(5, 10);
-            if (mmdd === "02-29") continue;
-            if (isRecords) {
-                let rec = map.get(mmdd) || { t_max_rec: -Infinity, year_max: null, t_min_rec: Infinity, year_min: null };
-                if (isFiniteNum(temperature_2m_max[i]) && temperature_2m_max[i] > rec.t_max_rec) { rec.t_max_rec = temperature_2m_max[i]; rec.year_max = +time[i].slice(0, 4); }
-                if (isFiniteNum(temperature_2m_min[i]) && temperature_2m_min[i] < rec.t_min_rec) { rec.t_min_rec = temperature_2m_min[i]; rec.year_min = +time[i].slice(0, 4); }
-                map.set(mmdd, rec);
-            } else {
-                let norm = map.get(mmdd) || { sum_max: 0, sum_min: 0, n: 0 };
-                if (isFiniteNum(temperature_2m_max[i])) norm.sum_max += temperature_2m_max[i];
-                if (isFiniteNum(temperature_2m_min[i])) norm.sum_min += temperature_2m_min[i];
-                norm.n++;
-                map.set(mmdd, norm);
-            }
-        }
-        const result = {};
-        for (const [key, val] of map.entries()) {
-            if (isRecords) {
-                result[key] = { ...val, t_max_rec: isFiniteNum(val.t_max_rec) ? val.t_max_rec : null, t_min_rec: isFiniteNum(val.t_min_rec) ? val.t_min_rec : null };
-            } else {
-                result[key] = { t_max_norm: val.n ? val.sum_max / val.n : null, t_min_norm: val.n ? val.sum_min / val.n : null };
-            }
-        }
-        return result;
-    };
-    return { normals: processData(normData, false), records: processData(recData, true) };
-}
-
-/**
- * Получает данные о значимых мировых событиях (землетрясения, циклоны).
- * @returns {Promise<object>} - Объект с событиями.
- */
+/* =========================
+ * 6) Получение LIVE-ленты экстремальных событий
+ * ========================= */
 async function getGlobalEvents() {
-    const [eqData, tcData] = await Promise.all([
-        safeFetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=now-24hours&minmagnitude=5.5`),
-        safeFetch("https://www.nhc.noaa.gov/CurrentStorms.json")
-    ]);
-    const earthquakes = (eqData?.features || []).map(f => ({ magnitude: f?.properties?.mag ?? null, location: f?.properties?.place ?? null }));
-    let tropical_cyclones = [];
-    if (tcData?.storms) {
-        tropical_cyclones = tcData.storms.map(s => {
-            const m = s.intensity?.match(/(\d+)\s*KT/), kt = m ? parseInt(m[1], 10) : 0;
-            return { name: `${s.classification} «${s.name}»`, wind_kmh: Math.round(kt * 1.852) };
-        });
-    }
-    return { earthquakes, tropical_cyclones };
+    const now = new Date();
+    const todayUTC = now.toISOString().slice(0, 10);
+    const events = { earthquakes: [], tropical_cyclones: [] };
+    try {
+      const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${todayUTC}T00:00:00&endtime=${todayUTC}T23:59:59&minmagnitude=5.0`;
+      const { data } = await axios.get(eqUrl, { timeout: 15000 });
+      events.earthquakes = (data?.features || []).map(f => ({ magnitude: f.properties?.mag, location: f.properties?.place }));
+    } catch (e) { console.warn("Не удалось получить данные о землетрясениях:", e.message); }
+    try {
+      const hurricaneUrl = `https://www.nhc.noaa.gov/CurrentStorms.json`;
+      const { data } = await axios.get(hurricaneUrl, { timeout: 15000 });
+      const basinMap = { AL: "Атлантический океан", EP: "восточная часть Тихого океана", CP: "центральная часть Тихого океана" };
+      if (data?.storms) {
+        events.tropical_cyclones = data.storms.map(storm => ({
+          name: `${storm.classification} «${storm.name}»`,
+          windSpeedKmh: Math.round((parseInt(storm.intensity.match(/(\d+)\s*KT/)?.[1] || '0', 10)) * 1.852),
+          location: basinMap[storm.basin] || storm.basin
+        }));
+      }
+    } catch (e) { console.warn("Не удалось получить данные о тропических циклонах от NOAA:", e.message); }
+    return events;
 }
 
-/**
- * Выбирает интересный факт дня из локального списка.
- * @returns {string} - Факт дня.
- */
-function getLocalFactOfDay() {
-    const facts = ["Средний круговорот воды в атмосфере занимает около 9 дней — столько в среднем «живет» молекула водяного пара, прежде чем выпадет осадками.", "Кучево-дождевые облака могут достигать 12–16 км в высоту, проникая в стратосферу — это выше эшелона полёта большинства авиалайнеров.", "Запах «после дождя», называемый петрикор, — это аромат масел растений и химического соединения геосмина, которые поднимаются в воздух с сухой почвы.", "Тёплый воздух удерживает больше влаги: каждые +10°C почти удваивают его способность насыщаться водяным паром, что объясняет летние ливни.", "Град формируется в мощных восходящих потоках грозового облака: чем сильнее поток, тем крупнее градины, многократно замерзая и подтаивая.", "Радуга — это оптическое явление, которое можно увидеть, только стоя спиной к солнцу. Её центр всегда находится в точке, противоположной солнцу.", "Снежинки всегда имеют шестиугольную симметрию из-за молекулярной структуры воды, но не существует двух абсолютно одинаковых снежинок.", "Скорость звука в воздухе зависит от температуры. Поэтому раскаты грома от далёкой молнии слышны иначе, чем от близкой.", "«Тепловой купол» над городами — результат поглощения солнечной радиации асфальтом и бетоном. Температура в мегаполисе может быть на 5-8°C выше, чем в пригороде.", "Полярное сияние возникает, когда заряженные частицы солнечного ветра сталкиваются с молекулами газов в верхних слоях атмосферы Земли."];
-    return pickBySeed(facts, seedFromDate()) || facts[0];
-}
+/* =========================
+ * 7) Предварительный анализ данных
+ * ========================= */
+function analyzeWeatherData(weatherData, historicalRecord) {
+    const insights = [];
+    const forecastTodayMax = weatherData.temperature_2m_max_int[0];
+    const recordData = historicalRecord.data;
 
-
-/* ──────────────────────────────────────────────────────────────────────────
-   3) АНАЛИТИКА И ФОРМИРОВАНИЕ ИНСАЙТОВ
-   ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Анализирует прогноз и климатические данные для выявления аномалий и рисков.
- * @param {object} forecast - Объект с прогнозом на 7 дней.
- * @param {object} climo - Объект с климатическими данными.
- * @returns {object} - Объект с инсайтами.
- */
-function buildInsights(forecast, climo) {
-    const insights = { anomalies: [], record_risk: [], heavy_precip_days: [], windy_days: [], uv_index_risk: [], temp_swing_days: [], headlines: [] };
-    for (let i = 0; i < forecast.days.length; i++) {
-        const d = forecast.days[i];
-        const key = dayOfYearKey(d.date), norm = climo.normals[key] || {}, recs = climo.records[key] || {};
-        const anom_max = isFiniteNum(d.t_max) && isFiniteNum(norm.t_max_norm) ? d.t_max - norm.t_max_norm : null;
-        insights.anomalies.push({ date: d.date, t_max_anom: anom_max });
-        if (isFiniteNum(d.t_max) && isFiniteNum(recs.t_max_rec) && d.t_max >= recs.t_max_rec - 1) {
-            insights.record_risk.push({ date: d.date, forecast: d.t_max, record: recs.t_max_rec, year: recs.year_max });
-        }
-        if ((d.pr_sum || 0) >= 10 || (d.pr_prob || 0) >= 70) {
-            insights.heavy_precip_days.push({ date: d.date, pr_sum: d.pr_sum, pr_prob: d.pr_prob });
-        }
-        if ((d.wg_max || 0) >= 17) {
-            insights.windy_days.push({ date: d.date, ws_max: d.ws_max, wg_max: d.wg_max });
-        }
-        if ((d.uv_max || 0) >= 6) {
-            insights.uv_index_risk.push({ date: d.date, uv_index: d.uv_max });
-        }
-        if (i > 0) {
-            const prev_t_max = forecast.days[i - 1].t_max;
-            if (isFiniteNum(d.t_max) && isFiniteNum(prev_t_max) && Math.abs(d.t_max - prev_t_max) >= 7) {
-                insights.temp_swing_days.push({ date: d.date, prev_t: prev_t_max, current_t: d.t_max });
-            }
+    // 1. Проверка на возможность побития рекорда
+    if (recordData && forecastTodayMax !== null) {
+        const recordMax = recordData.max.max;
+        if (forecastTodayMax >= recordMax) {
+            insights.push(`Сегодняшний день может ПОБИТЬ исторический рекорд тепла (${recordMax.toFixed(1)}°C, ${recordData.max.year} г.), прогноз почти ${forecastTodayMax}°C!`);
+        } else if (Math.abs(forecastTodayMax - recordMax) <= 2) {
+            insights.push(`Сегодня мы близко подойдём к историческому рекорду тепла (${recordMax.toFixed(1)}°C, ${recordData.max.year} г.).`);
         }
     }
-    const max_anomaly = Math.max(...insights.anomalies.map(a => Math.abs(a.t_max_anom || 0)));
-    if (max_anomaly >= 5) {
-        const anom = insights.anomalies.find(a => Math.abs(a.t_max_anom) === max_anomaly);
-        insights.headlines.push(`${anom.t_max_anom > 0 ? 'Волна тепла' : 'Похолодание'} с аномалией до ${round(anom.t_max_anom, 0)}°C`);
+
+    // 2. Поиск резких перепадов температур
+    for (let i = 0; i < weatherData.time.length - 1; i++) {
+        const tempToday = weatherData.temperature_2m_max_int[i];
+        const tempTomorrow = weatherData.temperature_2m_max_int[i+1];
+        if (tempToday !== null && tempTomorrow !== null && Math.abs(tempToday - tempTomorrow) >= 7) {
+            const change = tempTomorrow > tempToday ? 'резкое потепление' : 'РЕЗКОЕ ПОХОЛОДАНИЕ';
+            insights.push(`Внимание: на горизонте ${change} с ${tempToday}°C до ${tempTomorrow}°C (с ${buildDateLabels([weatherData.time[i]])[0]} на ${buildDateLabels([weatherData.time[i+1]])[0]}).`);
+            break; 
+        }
     }
-    if (insights.record_risk.length) insights.headlines.push("Риск температурного рекорда");
-    if (insights.heavy_precip_days.length) insights.headlines.push("Ожидаются сильные осадки");
-    if (insights.windy_days.length) insights.headlines.push("Периоды штормового ветра");
-    if (insights.temp_swing_days.length) insights.headlines.push("Резкие перепады температуры");
+
+    // 3. Поиск первого заморозка
+    const firstFreezeIndex = weatherData.temperature_2m_min_int.findIndex(t => t !== null && t <= 0);
+    if (firstFreezeIndex !== -1) {
+        insights.push(`Прогнозируется ПЕРВЫЙ ЗАМОРОЗОК в ночь на ${buildDateLabels([weatherData.time[firstFreezeIndex]])[0]}.`);
+    }
+
+    // 4. Постоянный характер погоды
+    const rainyDays = weatherData.precipitation_amount_max.filter(p => p > 0.5).length;
+    if (rainyDays >= 5) {
+        insights.push("Главная тема недели - затяжные дожди, готовьте зонты и терпение.");
+    } else {
+        const sunnyDays = weatherData.cloud_cover_max.filter(c => c !== null && c < 40).length;
+        if (sunnyDays >= 4) {
+            insights.push("Впереди несколько солнечных и преимущественно сухих дней - отличная возможность насладиться погодой.");
+        }
+    }
+
     return insights;
 }
 
+/* =========================
+ * 8) Генерация статьи
+ * ========================= */
+const MODEL_PRIMARY = "gemini-1.5-flash-latest";
+async function generateArticle(weatherData, timeOfDayRu) {
+  const tz = "Europe/Riga";
+  const todayRiga = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+  const historicalRecord = await getHistoricalRecord(todayRiga);
+  const analyticalHighlights = analyzeWeatherData(weatherData, historicalRecord);
+  const globalEvents = await getGlobalEvents();
 
-/* ──────────────────────────────────────────────────────────────────────────
-   4) ГЕНЕРАЦИЯ ТЕКСТА
-   ────────────────────────────────────────────────────────────────────────── */
+  const dataPayload = {
+    dates: buildDateLabels(weatherData.time),
+    analytical_highlights: analyticalHighlights,
+    temperature_min_int: weatherData.temperature_2m_min_int,
+    temperature_max_int: weatherData.temperature_2m_max_int,
+    precipitation_amount_max: weatherData.precipitation_amount_max,
+    cloud_cover_max: weatherData.cloud_cover_max,
+    wind_speed_max: weatherData.wind_speed_10m_max,
+    wind_gusts_max: weatherData.wind_gusts_10m_max,
+    wind_direction_dominant: weatherData.wind_direction_dominant,
+    globalEvents,
+  };
+    
+  const prompt = `
+Твоя роль: Опытный, харизматичный и немного ироничный метеоролог, который ведёт популярный блог о погоде в Риге. Ты не робот, зачитывающий цифры, а рассказчик, который находит в прогнозе погоды настоящую историю. Твой стиль — живой, образный, но всегда основанный на фактах.
 
-/**
- * Собирает все данные и создаёт промпт для языковой модели.
- * @returns {string} - Готовый промпт.
- */
-function buildPromptV5({ forecast, climo, insights, fact, events }) {
-    const dates = forecast.days.map((d) => d.date);
-    const dateLabels = (dates, tz = TZ, locale = LOCALE) => {
-        const today = isoDateInTZ(new Date(), tz), tomorrow = isoDateInTZ(new Date(Date.now() + 864e5), tz);
-        return dates.map(iso => {
-            const d = new Date(`${iso}T12:00:00Z`);
-            const weekday = new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: tz }).format(d);
-            if (iso === today) return `Сегодня (${weekday})`; if (iso === tomorrow) return `Завтра (${weekday})`;
-            return `${new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long' }).format(d)} (${weekday})`;
-        });
-    };
+Твоя задача: Написать эксклюзивный ${timeOfDayRu} синоптический обзор. Твоя главная цель — не просто перечислить данные, а создать увлекательное повествование, сделав акцент на самых интересных погодных событиях недели.
 
-    const weekRows = forecast.days.map((d, i) => ({
-        label: dateLabels([d.date])[0],
-        temp: `${round(d.t_min, 0)}..${round(d.t_max, 0)}°C`,
-        temp_feels_like: `${round(d.t_min_app, 0)}..${round(d.t_max_app, 0)}°C`,
-        precip_mm: round(d.pr_sum, 1),
-        precip_chance_pct: d.pr_prob,
-        wind_gust_ms: round(d.wg_max, 1),
-        wind_dir: degToCompass(d.wd_dom),
-        weather_description: wmoCodeToText(d.wc),
-        uv_index: round(d.uv_max, 1),
-    }));
+КЛЮЧЕВЫЕ МОМЕНТЫ НЕДЕЛИ (АНАЛИТИКА):
+Я уже провёл предварительный анализ данных и выделил для тебя самое главное. Построй свой рассказ вокруг этих моментов, вплетая их в разные части статьи. Это основа твоего повествования:
+<ANALYTICAL_HIGHLIGHTS>
+${analyticalHighlights.length > 0 ? analyticalHighlights.join("\n") : "На этой неделе обойдётся без крайностей, погода будет довольно стабильной."}
+</ANALYTICAL_HIGHLIGHTS>
 
-    const todayKey = dayOfYearKey(dates[0]);
-    const todayNorm = climo.normals[todayKey] || {};
-    const todayRec = climo.records[todayKey] || {};
-    let daylight_delta_min = null;
-    if (forecast.days.length >= 2 && isFiniteNum(forecast.days[0].daylight_sec) && isFiniteNum(forecast.days[1].daylight_sec)) {
-        daylight_delta_min = Math.round((forecast.days[0].daylight_sec - forecast.days[1].daylight_sec) / 60);
-    }
-    const localTime = new Date(forecast.current.time).toLocaleTimeString(LOCALE, { hour: '2-digit', minute: '2-digit', timeZone: TZ });
+ОБЩИЕ РЕКОМЕНДАЦИИ:
+1.  **Будь оригинальным:** Не используй одни и те же шаблонные фразы в каждой статье. Каждый выпуск должен звучать свежо.
+2.  **Структура — твой помощник, а не клетка:** Ниже предложена структура. Следуй ей в целом, но если для лучшего рассказа нужно объединить или поменять местами какие-то части — смело делай это.
+3.  **Никакого Markdown:** Только чистый, гладкий текст.
+4.  **Точность:** Всегда используй данные из блока <DATA_JSON>. Температуру указывай как целое число.
 
-    const DATA = {
-        meta: { place: PLACE_LABEL, tz: TZ, time_of_day: timeOfDayRu, date_alias: timeOfDayAlias, current_date: isoDateInTZ(new Date(), TZ) },
-        useful_links: { "Погодный радар": "https://www.meteored.com/weather-radars/", "Официальный прогноз LVGMC": "https://videscentrs.lvgmc.lv/", "Погода (Википедия)": "https://ru.wikipedia.org/wiki/Погода" },
-        current: { ...forecast.current, weather_description: wmoCodeToText(forecast.current.wc), local_time: localTime },
-        week_forecast: weekRows,
-        insights,
-        today_context: {
-            norm_tmax: round(todayNorm.t_max_norm, 1),
-            record_tmax: round(todayRec.t_max_rec, 1),
-            record_tmax_year: todayRec.year_max,
-            daylight_delta_min
-        },
-        world_events: events,
-        fact_of_day: fact,
-    };
+ПРЕДЛАГАЕМАЯ СТРУКТУРА СТАТЬИ:
+Заголовок (яркий, отражающий суть недели)
+Вступление (создай настроение, намекни на главную интригу недели из аналитики)
+Экстремальные события в мире сегодня (опиши события из globalEvents, в конце укажи источники словами: по данным USGS и NOAA/NHC)
+Обзор погоды с высоты птичьего полёта (объясни синоптическую ситуацию: циклоны, фронты, воздушные массы)
+Детальный прогноз по дням (опиши каждый день, не забывая вплетать аналитические моменты, где это уместно. Укажи направление ветра словами и порывы ≥10 м/с)
+Почему так, а не иначе (простое объяснение, почему погода будет именно такой)
+Погода и история / Погода и животные / Моря и океаны (выбери одну-две из этих тем и расскажи небольшую, уместную историю)
+Совет от метеоролога (практичные рекомендации, основанные на прогнозе)
+Мини-рубрика "Сегодня в истории" (используй текст из <NOTE>)
+Завершение (краткое резюме и тёплое прощание)
 
-    return `
-ТЫ — ХАРИЗМАТИЧНЫЙ МЕТЕОРОЛОГ И ТАЛАНТЛИВЫЙ РАССКАЗЧИК. Ты ведёшь популярный блог о погоде в городе ${PLACE_LABEL}.
-Твоя задача — написать ${timeOfDayRu} выпуск, превратив сухие данные в увлекательную, глубокую и полезную статью.
+ДАННЫЕ (НЕ выводить, использовать только для анализа):
+<DATA_JSON>
+${JSON.stringify(dataPayload, null, 2)}
+</DATA_JSON>
 
-СТИЛЬ И ТОН:
-- **Литературный и образный:** Пиши как для научно-популярного журнала. Используй метафоры ("атмосферный фронт, как театральный занавес", "антициклон — страж спокойствия").
-- **Объясняющий:** Не просто говори "будет дождь", а объясняй, ПОЧЕМУ. Связывай явления. Пример: "Южный ветер принесёт тёплый и влажный воздух с Атлантики, который при столкновении с холодной массой..."
-- **Увлекательный:** Найди "главного героя" недели — циклон, антициклон, волну тепла — и построй вокруг него повествование.
-
-ТРЕБОВАНИЯ К ФОРМАТИРОВАНИЮ (ОБЯЗАТЕЛЬНО):
-- Используй Markdown: \`##\` для подзаголовков, \`**жирный**\` для акцентов, \`*курсив*\` для терминов.
-- **ВСТАВЛЯЙ ССЫЛКИ:** Когда упоминаешь важный метеорологический термин (*циклон*, *атмосферный фронт*, *петрикор* и т.д.), превращай его в ссылку на русскую Википедию. Пример: "[циклон](https://ru.wikipedia.org/wiki/Циклон)".
-
-СТРУКТУРА СТАТЬИ:
-
-1.  **Заголовок:** Яркий, интригующий, отражающий суть недели.
-2.  **Метка времени:** Строка вида: \`${DATA.meta.current_date} (${DATA.meta.date_alias})\`
-3.  **## Главный сюжет недели:** Начни с основного события. Опирайся на \`insights.headlines\`. Это задаст тон всей статье.
-4.  **## Картина за окном:** Опиши текущую погоду (\`current\`) живописно. Укажи точное время: "По состоянию на ${localTime}...".
-5.  **## Атмосферный сценарий на 7 дней:**
-    * Расскажи историю недели. Где будет переломный момент?
-    * Опиши 2-3 самых значимых дня подробно: температура, ветер, характер осадков. Свяжи явления между собой.
-    * Остальные дни опиши кратко, в контексте общего сюжета.
-6.  **## Исторический контекст и небесная механика:**
-    * Сравни сегодняшний день с нормой и рекордом (\`today_context\`).
-    * Расскажи об изменении длины дня (\`daylight_delta_min\`).
-7.  **## Практический гид: риски и советы:**
-    * Собери все риски из \`insights\` (ветер, ливни, УФ) в один блок.
-    * Дай четкие, не банальные советы.
-8.  **## А вы знали?**
-    * Глубоко раскрой \`fact_of_day\`. Объясни научную подоплёку.
-9.  **## Полезные ссылки:**
-    * Создай Markdown-список из ссылок в \`useful_links\`.
-10. **Завершение:** Позитивный и вдохновляющий финальный абзац.
-
-ИСХОДНЫЕ ДАННЫЕ (используй ТОЛЬКО их, не выдумывай):
-${JSON.stringify(DATA, null, 2)}
+<NOTE>
+Сегодня в истории: ${historicalRecord.text}
+</NOTE>
 `;
+
+  try {
+    const model = genAI.getGenerativeModel({
+      model: MODEL_PRIMARY,
+      generationConfig: { temperature: 0.9, topP: 0.9, topK: 40, maxOutputTokens: 2500 }
+    });
+    console.log(`ℹ️  Генерирую текст моделью: ${MODEL_PRIMARY}`);
+    const result = await model.generateContent(prompt);
+    const text = sanitizeArticle(result.response.text());
+    console.log(`✅ Использована модель: ${MODEL_PRIMARY}`);
+    return { article: text, modelUsed: MODEL_PRIMARY };
+  } catch (e) {
+    console.error(`❌ Модель "${MODEL_PRIMARY}" не сработала: ${e.message}`);
+    throw new Error(`Ошибка генерации текста Gemini.`);
+  }
 }
 
-/**
- * Отправляет промпт в Gemini API и обрабатывает ответ.
- * @param {string} prompt - Промпт для модели.
- * @returns {Promise<object>} - Объект с текстом статьи и использованной моделью.
- */
-async function generateWithModels(prompt) {
-    for (const modelName of [MODEL_PRIMARY, ...MODEL_FALLBACKS]) {
-        try {
-            console.log(`💬 Попытка с моделью: ${modelName}...`);
-            const model = genAI.getGenerativeModel({ model: modelName, generationConfig: { temperature: 0.8, topP: 0.95, maxOutputTokens: 4096 } });
-            const result = await model.generateContent(prompt);
-            const text = result.response.text().trim();
-            if (text.length < 500) throw new Error("Слишком короткий ответ от модели.");
-            return { text, modelUsed: modelName };
-        } catch (e) {
-            console.warn(`⚠️ Модель ${modelName} не удалась:`, e.message);
-            await sleep(500);
-        }
-    }
-    throw new Error(`❌ Все модели не сработали.`);
+/* =========================
+ * 9) Сохранение результата
+ * ========================= */
+function saveArticle(articleText, timeOfDay, modelUsed) {
+  const now = new Date();
+  const fileDate = now.toISOString().slice(0, 10);
+  const displayDate = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Riga" });
+  
+  const lines = articleText.split("\n");
+  const titleIndex = lines.findIndex(l => l.trim().length > 0);
+  const title = titleIndex > -1 ? lines[titleIndex].trim() : "Прогноз погоды в Риге";
+  const content = titleIndex > -1 ? lines.slice(titleIndex + 1).join("\n").trim() : articleText;
+
+  const articleJson = { title, date: displayDate, time: timeOfDay, content, model: modelUsed };
+  const archiveFileName = `article-${fileDate}-${timeOfDay}.json`;
+  fs.writeFileSync(archiveFileName, JSON.stringify(articleJson, null, 2), "utf-8");
+  fs.writeFileSync("latest-article.json", JSON.stringify(articleJson, null, 2), "utf-8");
+  console.log(`✅ Статья (${timeOfDay}) сохранена в ${archiveFileName} и latest-article.json (model=${modelUsed})`);
 }
 
-
-/* ──────────────────────────────────────────────────────────────────────────
-   5) СОХРАНЕНИЕ РЕЗУЛЬТАТА
-   ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Сохраняет сгенерированную статью и полный JSON-отчет.
- */
-function saveOutputs({ articleText, modelUsed, forecast, climo, insights, events }) {
-    const now = new Date();
-    const fileDate = isoDateInTZ(now, TZ);
-    const fileSuffix = `${fileDate}-${timeOfDay}`;
-
-    // Сохранение полного отчета для отладки
-    const richReport = {
-        meta: { generated_at: now.toISOString(), time_of_day: timeOfDay, model: modelUsed, place: PLACE_LABEL },
-        article_text: articleText,
-        data_sources: {
-            forecast,
-            climatology: {
-                 normals: climo.normals,
-                 records: climo.records
-            }, insights, world_events: events
-        }
-    };
-    fs.writeFileSync(`article-data-${fileSuffix}.json`, JSON.stringify(richReport, null, 2), "utf-8");
-    console.log(`✅ Сохранен полный отчет: article-data-${fileSuffix}.json`);
-
-    // Сохранение финальной статьи
-    const extension = OUTPUT_FORMAT === 'md' ? 'md' : 'txt';
-    fs.writeFileSync(`article-${fileSuffix}.${extension}`, articleText, "utf-8");
-    console.log(`✅ Сохранена статья: article-${fileSuffix}.${extension}`);
-}
-
-
-/* ──────────────────────────────────────────────────────────────────────────
-   6) ГЛАВНАЯ ФУНКЦИЯ
-   ────────────────────────────────────────────────────────────────────────── */
-
+/* =========================
+ * 10) Основной запуск
+ * ========================= */
 (async () => {
-    console.log(`🚀 Старт генерации (${timeOfDayRu}, ${PLACE_LABEL})`);
-    try {
-        // 1. Асинхронно запрашиваем все данные
-        const results = await Promise.allSettled([
-            getOpenMeteoData(),
-            getClimoAndRecords(),
-            getGlobalEvents()
-        ]);
+  console.log(`🚀 Запуск генерации статьи (${timeOfDay})...`);
+  try {
+    const weatherData = await getWeatherData();
+    console.log("📊 Данные MET.NO получены и агрегированы.");
 
-        const forecastResult = results[0];
-        if (forecastResult.status === 'rejected') throw forecastResult.reason;
-        const forecast = forecastResult.value;
+    const { article, modelUsed } = await generateArticle(weatherData, timeOfDayRu);
+    console.log("✍️ Статья сгенерирована.");
 
-        const climoResult = results[1];
-        if (climoResult.status === 'rejected') console.warn("⚠️ Не удалось загрузить данные по климату, генерация продолжится без них.");
-        const climo = climoResult.value || { normals: {}, records: {} };
+    console.log("\n=== Сгенерированная статья ===\n");
+    console.log(article);
+    console.log("\n============================\n");
 
-        const eventsResult = results[2];
-        if (eventsResult.status === 'rejected') console.warn("⚠️ Не удалось загрузить мировые события.");
-        const events = eventsResult.value || { earthquakes: [], tropical_cyclones: [] };
-
-        console.log("📊 Данные успешно собраны.");
-
-        // 2. Анализируем данные и готовим факт дня
-        const insights = buildInsights(forecast, climo);
-        const fact = getLocalFactOfDay();
-        console.log("🧠 Инсайты и факт дня подготовлены.");
-
-        // 3. Собираем промпт и генерируем текст
-        const prompt = buildPromptV5({ forecast, climo, insights, fact, events });
-        const { text, modelUsed } = await generateWithModels(prompt);
-        console.log(`✒️ Текст успешно сгенерирован моделью ${modelUsed}.`);
-
-        // 4. Сохраняем результаты
-        saveOutputs({ articleText: text, modelUsed, forecast, climo, insights, events });
-
-        console.log("✨ Готово!");
-    } catch (e) {
-        console.error("\n❌ КРИТИЧЕСКАЯ ОШИБКА:", e.message);
-        process.exit(1);
-    }
+    saveArticle(article, timeOfDay, modelUsed);
+  } catch (error) {
+    console.error("❌ Критическая ошибка:", error.message);
+    process.exit(1);
+  }
 })();
 
