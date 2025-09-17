@@ -1,0 +1,492 @@
+{
+  "meta": {
+    "generated_at": "2025-09-17T13:12:25.087Z",
+    "time_of_day": "evening",
+    "model": "gemini-1.5-pro-latest",
+    "place": "Рига, Латвия",
+    "lat": 56.95,
+    "lon": 24.1,
+    "tz": "Europe/Riga"
+  },
+  "current": {
+    "time": "2025-09-17T16:00",
+    "t": 17.2,
+    "at": 15.1,
+    "ws": 5,
+    "wg": 9.5,
+    "pr": 0,
+    "wc": 3,
+    "tz": "Europe/Riga",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude=56.95&longitude=24.1&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,precipitation,weather_code&timezone=auto&windspeed_unit=ms"
+  },
+  "forecast_days": [
+    {
+      "date": "2025-09-17",
+      "tmax": 17.3,
+      "tmin": 13.8,
+      "tmax_int": 17,
+      "tmin_int": 14,
+      "app_tmax": 17.3,
+      "app_tmin": 13.8,
+      "ws_max": 5.3,
+      "wg_max": null,
+      "wd_dom": 206.31779271378136,
+      "wd_compass": "ЮЮЗ",
+      "wd_words_ru": "юго‑юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0.1,
+      "pr_1h_max": 0.1,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-18",
+      "tmax": 18.5,
+      "tmin": 12.1,
+      "tmax_int": 19,
+      "tmin_int": 12,
+      "app_tmax": 18.5,
+      "app_tmin": 12.1,
+      "ws_max": 5.2,
+      "wg_max": null,
+      "wd_dom": 224.30108450360726,
+      "wd_compass": "ЮЗ",
+      "wd_words_ru": "юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0.8,
+      "pr_1h_max": 0.6,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-19",
+      "tmax": 18.2,
+      "tmin": 14.7,
+      "tmax_int": 18,
+      "tmin_int": 15,
+      "app_tmax": 18.2,
+      "app_tmin": 14.7,
+      "ws_max": 5.8,
+      "wg_max": null,
+      "wd_dom": 246.5206249231635,
+      "wd_compass": "ЗЮЗ",
+      "wd_words_ru": "западно‑юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0,
+      "pr_1h_max": 0,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-20",
+      "tmax": 21.4,
+      "tmin": 16.8,
+      "tmax_int": 21,
+      "tmin_int": 17,
+      "app_tmax": 21.4,
+      "app_tmin": 16.8,
+      "ws_max": 4.7,
+      "wg_max": null,
+      "wd_dom": 244.54962378399875,
+      "wd_compass": "ЗЮЗ",
+      "wd_words_ru": "западно‑юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0,
+      "pr_1h_max": 0,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-21",
+      "tmax": 22.4,
+      "tmin": 16.5,
+      "tmax_int": 22,
+      "tmin_int": 17,
+      "app_tmax": 22.4,
+      "app_tmin": 16.5,
+      "ws_max": 3.8,
+      "wg_max": null,
+      "wd_dom": 202.10393852915504,
+      "wd_compass": "ЮЮЗ",
+      "wd_words_ru": "юго‑юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0,
+      "pr_1h_max": 0,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-22",
+      "tmax": 18.8,
+      "tmin": 15.3,
+      "tmax_int": 19,
+      "tmin_int": 15,
+      "app_tmax": 18.8,
+      "app_tmin": 15.3,
+      "ws_max": 3.6,
+      "wg_max": null,
+      "wd_dom": 255.27349344906486,
+      "wd_compass": "ЗЮЗ",
+      "wd_words_ru": "западно‑юго‑западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0,
+      "pr_1h_max": 0,
+      "comfort_index": 10,
+      "astro_index": 1
+    },
+    {
+      "date": "2025-09-23",
+      "tmax": 15.4,
+      "tmin": 12.8,
+      "tmax_int": 15,
+      "tmin_int": 13,
+      "app_tmax": 15.4,
+      "app_tmin": 12.8,
+      "ws_max": 3.3,
+      "wg_max": null,
+      "wd_dom": 268.86066085007377,
+      "wd_compass": "З",
+      "wd_words_ru": "западный",
+      "cloud_max": 100,
+      "pop_max": null,
+      "pr_sum": 0,
+      "pr_1h_max": 0,
+      "comfort_index": 10,
+      "astro_index": 1
+    }
+  ],
+  "sun": [
+    {
+      "date": "2025-09-17",
+      "sunrise_iso": "2025-09-17T06:59",
+      "sunset_iso": "2025-09-17T19:36",
+      "daylight_min": 757
+    },
+    {
+      "date": "2025-09-18",
+      "sunrise_iso": "2025-09-18T07:01",
+      "sunset_iso": "2025-09-18T19:34",
+      "daylight_min": 753
+    },
+    {
+      "date": "2025-09-19",
+      "sunrise_iso": "2025-09-19T07:03",
+      "sunset_iso": "2025-09-19T19:31",
+      "daylight_min": 748
+    },
+    {
+      "date": "2025-09-20",
+      "sunrise_iso": "2025-09-20T07:05",
+      "sunset_iso": "2025-09-20T19:28",
+      "daylight_min": 743
+    },
+    {
+      "date": "2025-09-21",
+      "sunrise_iso": "2025-09-21T07:07",
+      "sunset_iso": "2025-09-21T19:25",
+      "daylight_min": 738
+    },
+    {
+      "date": "2025-09-22",
+      "sunrise_iso": "2025-09-22T07:09",
+      "sunset_iso": "2025-09-22T19:23",
+      "daylight_min": 734
+    },
+    {
+      "date": "2025-09-23",
+      "sunrise_iso": "2025-09-23T07:11",
+      "sunset_iso": "2025-09-23T19:20",
+      "daylight_min": 729
+    }
+  ],
+  "climatology": {
+    "normals_7d": [
+      {
+        "date": "2025-09-17",
+        "tmax_norm": 15.346666666666666,
+        "tmin_norm": 9.933333333333335
+      },
+      {
+        "date": "2025-09-18",
+        "tmax_norm": 15.743333333333334,
+        "tmin_norm": 9.839999999999998
+      },
+      {
+        "date": "2025-09-19",
+        "tmax_norm": 16.27,
+        "tmin_norm": 10.19
+      },
+      {
+        "date": "2025-09-20",
+        "tmax_norm": 15.363333333333339,
+        "tmin_norm": 9.536666666666667
+      },
+      {
+        "date": "2025-09-21",
+        "tmax_norm": 15.683333333333335,
+        "tmin_norm": 9.883333333333333
+      },
+      {
+        "date": "2025-09-22",
+        "tmax_norm": 15.593333333333334,
+        "tmin_norm": 10.1
+      },
+      {
+        "date": "2025-09-23",
+        "tmax_norm": 15.196666666666665,
+        "tmin_norm": 9.179999999999998
+      }
+    ],
+    "records_7d": [
+      {
+        "date": "2025-09-17",
+        "tmax_record": 24.7,
+        "year_record_max": 2024,
+        "tmin_record": 5,
+        "year_record_min": 2000
+      },
+      {
+        "date": "2025-09-18",
+        "tmax_record": 21.8,
+        "year_record_max": 2018,
+        "tmin_record": 4.5,
+        "year_record_min": 1995
+      },
+      {
+        "date": "2025-09-19",
+        "tmax_record": 26.2,
+        "year_record_max": 2018,
+        "tmin_record": 4.5,
+        "year_record_min": 2021
+      },
+      {
+        "date": "2025-09-20",
+        "tmax_record": 25.3,
+        "year_record_max": 2018,
+        "tmin_record": 4.7,
+        "year_record_min": 2021
+      },
+      {
+        "date": "2025-09-21",
+        "tmax_record": 27.6,
+        "year_record_max": 2018,
+        "tmin_record": 5,
+        "year_record_min": 2021
+      },
+      {
+        "date": "2025-09-22",
+        "tmax_record": 23.8,
+        "year_record_max": 2023,
+        "tmin_record": 1.8,
+        "year_record_min": 2019
+      },
+      {
+        "date": "2025-09-23",
+        "tmax_record": 23.8,
+        "year_record_max": 2020,
+        "tmin_record": -1.3,
+        "year_record_min": 2019
+      }
+    ]
+  },
+  "insights": {
+    "anomalies": [
+      {
+        "date": "2025-09-17",
+        "tmax_anom": 1.953333333333335,
+        "tmin_anom": 3.8666666666666654,
+        "tmax_norm": 15.346666666666666,
+        "tmin_norm": 9.933333333333335
+      },
+      {
+        "date": "2025-09-18",
+        "tmax_anom": 2.756666666666666,
+        "tmin_anom": 2.2600000000000016,
+        "tmax_norm": 15.743333333333334,
+        "tmin_norm": 9.839999999999998
+      },
+      {
+        "date": "2025-09-19",
+        "tmax_anom": 1.9299999999999997,
+        "tmin_anom": 4.51,
+        "tmax_norm": 16.27,
+        "tmin_norm": 10.19
+      },
+      {
+        "date": "2025-09-20",
+        "tmax_anom": 6.03666666666666,
+        "tmin_anom": 7.263333333333334,
+        "tmax_norm": 15.363333333333339,
+        "tmin_norm": 9.536666666666667
+      },
+      {
+        "date": "2025-09-21",
+        "tmax_anom": 6.716666666666663,
+        "tmin_anom": 6.616666666666667,
+        "tmax_norm": 15.683333333333335,
+        "tmin_norm": 9.883333333333333
+      },
+      {
+        "date": "2025-09-22",
+        "tmax_anom": 3.206666666666667,
+        "tmin_anom": 5.200000000000001,
+        "tmax_norm": 15.593333333333334,
+        "tmin_norm": 10.1
+      },
+      {
+        "date": "2025-09-23",
+        "tmax_anom": 0.20333333333333492,
+        "tmin_anom": 3.6200000000000028,
+        "tmax_norm": 15.196666666666665,
+        "tmin_norm": 9.179999999999998
+      }
+    ],
+    "record_risk_high": [],
+    "record_risk_low": [],
+    "heavy_precip_days": [],
+    "windy_days": [],
+    "warm_spikes": [
+      "2025-09-20",
+      "2025-09-21"
+    ],
+    "cold_dips": [],
+    "headlines": [
+      "Тёплая волна"
+    ],
+    "daylight": [
+      {
+        "date": "2025-09-17",
+        "sunrise_iso": "2025-09-17T06:59",
+        "sunset_iso": "2025-09-17T19:36",
+        "daylight_min": 757
+      },
+      {
+        "date": "2025-09-18",
+        "sunrise_iso": "2025-09-18T07:01",
+        "sunset_iso": "2025-09-18T19:34",
+        "daylight_min": 753
+      },
+      {
+        "date": "2025-09-19",
+        "sunrise_iso": "2025-09-19T07:03",
+        "sunset_iso": "2025-09-19T19:31",
+        "daylight_min": 748
+      },
+      {
+        "date": "2025-09-20",
+        "sunrise_iso": "2025-09-20T07:05",
+        "sunset_iso": "2025-09-20T19:28",
+        "daylight_min": 743
+      },
+      {
+        "date": "2025-09-21",
+        "sunrise_iso": "2025-09-21T07:07",
+        "sunset_iso": "2025-09-21T19:25",
+        "daylight_min": 738
+      },
+      {
+        "date": "2025-09-22",
+        "sunrise_iso": "2025-09-22T07:09",
+        "sunset_iso": "2025-09-22T19:23",
+        "daylight_min": 734
+      },
+      {
+        "date": "2025-09-23",
+        "sunrise_iso": "2025-09-23T07:11",
+        "sunset_iso": "2025-09-23T19:20",
+        "daylight_min": 729
+      }
+    ]
+  },
+  "historical_week": {
+    "avg_tmax_anom": 3.3,
+    "avg_tmin_anom": 4.8,
+    "warmest_day": {
+      "date": "2025-09-21",
+      "tmax_anom": 6.7
+    },
+    "coldest_day": {
+      "date": "2025-09-23",
+      "tmax_anom": 0.2
+    },
+    "near_record_high_days": [],
+    "near_record_low_days": []
+  },
+  "global_radar": {
+    "earthquake_top": {
+      "magnitude": 6,
+      "location": "206 km SE of Kokopo, Papua New Guinea"
+    },
+    "cyclone_top": null,
+    "eonet_counts": {
+      "Severe Storms": 2,
+      "Wildfires": 5550,
+      "Sea and Lake Ice": 47,
+      "Volcanoes": 35
+    },
+    "eonet_notable": [
+      {
+        "title": "Cyclone Mario",
+        "categories": [
+          "Severe Storms"
+        ]
+      },
+      {
+        "title": "SMR Unit 100/101 Rx 0911 Prescribed Fire, Wakulla, Florida",
+        "categories": [
+          "Wildfires"
+        ]
+      },
+      {
+        "title": "Rx Quanah Prescribed Fire, Comanche, Oklahoma",
+        "categories": [
+          "Wildfires"
+        ]
+      },
+      {
+        "title": "SMR Unit 21-138 Rx 0910 Prescribed Fire, Jefferson, Florida",
+        "categories": [
+          "Wildfires"
+        ]
+      },
+      {
+        "title": "WOODEN ROAD Wildfire, Walla Walla, Washington",
+        "categories": [
+          "Wildfires"
+        ]
+      }
+    ]
+  },
+  "source_links_all": [
+    {
+      "label": "MET Norway — прогноз",
+      "url": "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=56.95&lon=24.1"
+    },
+    {
+      "label": "Open‑Meteo — текущая погода и солнце",
+      "url": "https://api.open-meteo.com/v1/forecast?latitude=56.95&longitude=24.1&current=temperature_2m,apparent_temperature,wind_speed_10m,wind_gusts_10m,precipitation,weather_code&timezone=auto&windspeed_unit=ms"
+    },
+    {
+      "label": "Open‑Meteo Archive — нормы и рекорды",
+      "url": "https://archive-api.open-meteo.com/v1/archive?latitude=56.95&longitude=24.1&start_date=1991-01-01&end_date=2020-12-31&daily=temperature_2m_max,temperature_2m_min&timezone=UTC"
+    },
+    {
+      "label": "USGS — землетрясения (24 ч, ≥5.5)",
+      "url": "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=now-24hours&minmagnitude=5.5"
+    },
+    {
+      "label": "NOAA/NHC — текущие тропические циклоны",
+      "url": "https://www.nhc.noaa.gov/CurrentStorms.json"
+    }
+  ],
+  "article": {
+    "title": "Главная мысль дня",
+    "content": "В Риге наступила тёплая волна. Наслаждаемся комфортной погодой всю неделю — от 10 до 10 баллов.\n\nМетка дня и времени\n2025-09-17 (вечер)\n\nПогода за окном сейчас\nПо состоянию на 19:00 температура воздуха +17,2°C, ощущается как +15,1°C. Ветер юго‑юго‑западный, 5 м/с, порывы до 9,5 м/с. Сухо.\n\nНеделя в одном взгляде\nСамые комфортные дни — сегодня и завтра. Самые сложные — тоже сегодня и завтра. Диапазон комфорта на неделе: от 10 до 10.\n\nДетально по дням\nСегодня, 17 сентября, днём +17°C, ночью +14°C. Ветер юго‑юго‑западный. Шанс осадков минимальный.\nЗавтра, 18 сентября, днём +19°C, ночью +12°C. Ветер юго‑западный. Кратковременные осадки.\nВ пятницу, 19 сентября, днём +18°C, ночью +15°C. Ветер западно‑юго‑западный. Сухо.\nВо суббота, 20 сентября, днём +21°C, ночью +17°C. Ветер западно‑юго‑западный. Сухо.\nВо воскресенье, 21 сентября, днём +22°C, ночью +17°C. Ветер юго‑юго‑западный. Сухо.\nВ понедельник, 22 сентября, днём +19°C, ночью +15°C. Ветер западно‑юго‑западный. Сухо.\nВо вторник, 23 сентября, днём +15°C, ночью +13°C. Ветер западный. Сухо.\n\nКлимат и исторический контекст\nСегодня температура выше климатической нормы: на +2°C теплее, чем обычно в этот день. На неделе средняя аномалия максимальных температур составит +3,3°C, минимальных +4,8°C. Самый тёплый день относительно нормы — воскресенье, самый холодный — вторник.\n\nРиски: осадки и ветер\nДанные о днях с сильными осадками или ветром недоступны.\n\nНочное небо\nИндекс наблюдений — 1. Шансов увидеть звёзды почти нет. Световой день уменьшился на 4 минуты.\n\nРадар экстремалей\nЗафиксировано землетрясение магнитудой 6 в 206 км к юго-востоку от Кокопо, Папуа — Новая Гвинея. Зарегистрировано 2 случая штормов, 5550 лесных пожаров и 35 вулканических событий. Циклон «Марио» — одно из заметных явлений. По данным служб мониторинга землетрясений и ураганов.\n\nА вы знали?\nГрад образуется в сильных восходящих потоках воздуха. Чем мощнее эти потоки, тем больше времени у ледяных частиц, чтобы обрасти новыми слоями и превратиться в крупные градины.  Представьте себе, как маленький кристаллик льда, подхваченный ветром, летает вверх-вниз в грозовой туче, постепенно увеличиваясь в размерах, словно снежный ком.\n\nСовет от метеоролога\nНесмотря на тёплую погоду, вечером может быть прохладно, поэтому захватите лёгкую куртку.  Лучшее время для прогулок — днём, когда температура наиболее комфортная.  Особых рекомендаций по парковке и окнам нет.\n\nИсточники и ссылки\nMET Norway — прогноз — https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=56.95&lon=24.1\nOpen‑Meteo — текущая погода и солнце — https://api.open-meteo.com/v1/forecast?latitude=56.95&longitude=24.1&current=temperature2m,apparenttemperature,windspeed10m,windgusts10m,precipitation,weathercode&timezone=auto&windspeedunit=ms\nOpen‑Meteo Archive — нормы и рекорды — https://archive-api.open-meteo.com/v1/archive?latitude=56.95&longitude=24.1&startdate=1991-01-01&enddate=2020-12-31&daily=temperature2mmax,temperature2mmin&timezone=UTC\nUSGS — землетрясения (24 ч, ≥5.5) — https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=now-24hours&minmagnitude=5.5\nNOAA/NHC — текущие тропические циклоны — https://www.nhc.noaa.gov/CurrentStorms.json\n\nПусть эта тёплая неделя подарит вам отличное настроение!"
+  }
+}
