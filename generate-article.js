@@ -1,14 +1,13 @@
 /**
  * generate-article.js
- * v4.0 (Robustness & Readability Update)
+ * v4.1 (Narrative Freedom & Data Source Update)
  *
  * CHANGELOG:
- * - Centralized configuration for easy management (locations, APIs, etc.).
- * - Added a robust `fetchWithRetry` utility for all API calls to handle network issues.
- * - Enriched code with JSDoc comments for better developer experience and clarity.
- * - Refined the Gemini prompt to encourage more narrative variety.
- * - Improved logging for better tracking of the script's execution flow.
- * - Maintained and clarified existing logic for weather data processing and analysis.
+ * - Switched tropical storm data source from a defunct NHC link to the NASA EONET API for reliable, global event tracking.
+ * - Reworked the Gemini prompt to de-emphasize rigid structure and encourage a more creative, narrative-driven approach.
+ * - The AI is now instructed to identify the week's most significant weather event and build the story around it.
+ * - Added explicit instructions to avoid common weather clichés.
+ * - Updated data parsing for the new NASA EONET event structure.
  */
 
 import axios from "axios";
@@ -337,17 +336,26 @@ async function getGlobalEvents() {
     } catch (e) { console.warn(`Не удалось получить данные о землетрясениях: ${e.message}`); }
 
     try {
-        const hurricaneUrl = `https://www.nhc.noaa.gov/CurrentStorms.json`;
-        const data = await fetchWithRetry(hurricaneUrl, commonOptions);
-        const basinMap = { AL: "Атлантический океан", EP: "восточная часть Тихого океана", CP: "центральная часть Тихого океана" };
-        if (data?.storms) {
-            events.tropical_cyclones = data.storms.map(storm => ({
-                name: `${storm.classification} «${storm.name}»`,
-                windSpeedKmh: Math.round((parseInt(storm.intensity.match(/(\d+)\s*KT/)?.[1] || '0', 10)) * 1.852),
-                location: basinMap[storm.basin] || storm.basin
-            }));
+        // ИЗМЕНЕНО: Переход на API NASA EONET для глобального отслеживания штормов
+        const stormsUrl = `https://eonet.gsfc.nasa.gov/api/v3/events?category=severeStorms&status=open&limit=5`;
+        const data = await fetchWithRetry(stormsUrl, commonOptions);
+        if (data?.events) {
+            events.tropical_cyclones = data.events
+                .map(event => {
+                    // Находим последнюю доступную точку геометрии для получения свежих данных
+                    const lastPoint = event.geometry[event.geometry.length - 1];
+                    const windSpeedKts = lastPoint.magnitudeValue || 0;
+                    return {
+                        name: event.title,
+                        // Конвертируем узлы в км/ч
+                        windSpeedKmh: Math.round(windSpeedKts * 1.852),
+                        location: "Global event" // EONET не предоставляет простой "бассейн" как NHC
+                    };
+                })
+                // Отфильтровываем события, не достигшие силы тропического шторма ( > 63 км/ч)
+                .filter(s => s.windSpeedKmh > 63);
         }
-    } catch (e) { console.warn(`Не удалось получить данные о тропических циклонах от NOAA: ${e.message}`); }
+    } catch (e) { console.warn(`Не удалось получить данные о тропических циклонах от NASA: ${e.message}`); }
     
     return events;
 }
@@ -431,27 +439,17 @@ async function generateArticle(weatherData, timeOfDayRu) {
 Твоя задача: Написать эксклюзивный ${timeOfDayRu} синоптический обзор. Твоя главная цель — не просто перечислить данные, а создать увлекательное повествование, сделав акцент на самых интересных погодных событиях недели.
 
 КЛЮЧЕВЫЕ МОМЕНТЫ НЕДЕЛИ (АНАЛИТИКА):
-Я уже провёл предварительный анализ данных и выделил для тебя самое главное. Построй свой рассказ вокруг этих моментов, вплетая их в разные части статьи. Это основа твоего повествования:
+Я уже провёл предварительный анализ данных и выделил для тебя самое главное. Это основа твоего повествования:
 <ANALYTICAL_HIGHLIGHTS>
 ${analyticalHighlights.length > 0 ? analyticalHighlights.join("\n") : "На этой неделе обойдётся без крайностей, погода будет довольно стабильной."}
 </ANALYTICAL_HIGHLIGHTS>
 
-ОБЩИЕ РЕКОМЕНДАЦИИ:
-1.  **Будь оригинальным:** Не используй одни и те же шаблонные фразы. Каждый выпуск должен звучать свежо.
-2.  **Структура — твой помощник, а не клетка:** Следуй предложенной структуре в целом, но если для лучшего рассказа нужно что-то изменить — смело делай это.
-3.  **Никакого Markdown:** Только чистый, гладкий текст.
-4.  **Точность:** Всегда используй данные из блока <DATA_JSON>. Температуру указывай как целое число.
-5.  **Избегай повторений:** Старайся не повторять те же самые метафоры или шутки в каждом выпуске. Каждый день — новая история.
-
-ПРЕДЛАГАЕМАЯ СТРУКТУРА СТАТЬИ:
-Заголовок (яркий, отражающий суть недели)
-Вступление (создай настроение, намекни на главную интригу недели из аналитики)
-Экстремальные события в мире сегодня (опиши события из globalEvents, в конце укажи источники словами: по данным USGS и NOAA/NHC)
-Обзор погоды с высоты птичьего полёта (объясни синоптическую ситуацию: циклоны, фронты, воздушные массы)
-Детальный прогноз по дням (опиши каждый день, вплетая аналитические моменты. Укажи направление ветра словами и порывы ≥10 м/с)
-Почему так, а не иначе (простое объяснение, почему погода будет именно такой)
-Мини-рубрика "Сегодня в истории" (используй текст из <NOTE>)
-Завершение (краткое резюме и тёплое прощание)
+ТВОЙ ТВОРЧЕСКИЙ ПОДХОД:
+1.  **Найди Главного Героя:** Посмотри на <ANALYTICAL_HIGHLIGHTS>. Что самое важное на этой неделе? Резкое похолодание? Угроза рекорда? Затяжные дожди? Выбери ОДНО ключевое событие и сделай его центральной темой, "главным героем" твоего рассказа.
+2.  **Свободное Повествование:** Забудь о строгой структуре "заголовок-вступление-заключение". Вместо этого, построй живой рассказ. Начни с интриги, связанной с "главным героем", плавно перейди к деталям по дням, объясни причины (синоптическая ситуация), а затем вернись к основной теме в конце.
+3.  **Избегай Клише:** Никаких "капризных дам", "дыхания атмосферы" и "осенней меланхолии". Ищи свежие, оригинальные метафоры или просто пиши прямо и по делу, но с харизмой.
+4.  **Интегрируй Факты:** Не создавай отдельные блоки для мировых событий или исторических фактов. Вплетай их в повествование там, где это уместно. Например: "Пока у нас тут намечается первый заморозок, в мировых океанах бушует [название шторма]...".
+5.  **Текст должен быть цельным.** Не используй подзаголовки и Markdown.
 
 ДАННЫЕ (НЕ выводить, использовать только для анализа):
 <DATA_JSON>
@@ -459,7 +457,7 @@ ${JSON.stringify(dataPayload, null, 2)}
 </DATA_JSON>
 
 <NOTE>
-Сегодня в истории: ${historicalRecord.text}
+Исторический факт для сегодняшнего дня (вплети его в рассказ): ${historicalRecord.text}
 </NOTE>
 `;
 
@@ -536,3 +534,4 @@ function saveArticle(articleText, timeOfDay, modelUsed) {
     process.exit(1);
   }
 })();
+
