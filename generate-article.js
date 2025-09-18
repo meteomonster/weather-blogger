@@ -1,12 +1,11 @@
 /**
  * generate-article.js
- * v4.4 (Modular Events & Prompt Upgrade)
+ * v4.5 (Strict Fact Inclusion & Prompt Refinement)
  *
  * CHANGELOG:
- * - Removed the local `getGlobalEvents` function.
- * - Now imports `getGlobalEventsData` from the new, dedicated `storms.js` module.
- * - This simplifies the main file and adheres to the single-responsibility principle.
- * - The main prompt has been updated to intelligently handle a wider range of global events (wildfires, volcanoes, etc.), instructing the AI to focus on the most significant ones.
+ * - The main prompt has been significantly hardened to make fun fact inclusion a mandatory requirement, not a creative suggestion.
+ * - This fixes an issue where the AI would sometimes omit the fact if it felt it didn't fit the narrative.
+ * - The instruction is now more direct, ensuring higher consistency in the output.
  */
 
 import axios from "axios";
@@ -22,7 +21,7 @@ import { getGlobalEventsData } from "./storms.js"; // ИМПОРТ ИЗ НОВО
 const CONFIG = {
   LOCATION: { LAT: 56.95, LON: 24.1, TIMEZONE: "Europe/Riga" },
   API: {
-    USER_AGENT: "WeatherBloggerApp/1.4 (+https://github.com/meteomonster/weather-blogger)",
+    USER_AGENT: "WeatherBloggerApp/1.5 (+https://github.com/meteomonster/weather-blogger)",
     TIMEOUT: 20000,
     RETRIES: 3,
   },
@@ -268,7 +267,6 @@ async function generateArticle(weatherData, timeOfDayRu) {
   console.log("    Получаю исторические рекорды...");
   const historicalRecord = await getHistoricalRecord(todayRiga);
   
-  // ИСПОЛЬЗУЕМ НОВЫЙ МОДУЛЬ
   const globalEvents = await getGlobalEventsData();
   
   console.log("    Провожу предварительный анализ...");
@@ -300,7 +298,7 @@ ${analyticalHighlights.length > 0 ? analyticalHighlights.join("\n") : "На эт
 1.  **Главный Герой:** Выбери ОДНО ключевое событие из <ANALYTICAL_HIGHLIGHTS> и сделай его центральной темой рассказа.
 2.  **Свободное Повествование:** Строй живой рассказ вокруг "главного героя". Начни с интриги, плавно переходи к деталям по дням, объясняй причины (синоптическая ситуация).
 3.  **Избегай Клише:** Никаких "капризных дам" и "дыхания атмосферы". Ищи свежие метафоры.
-4.  **Интегрируй Факты:** Вплетай факты в повествование. Упомяни 1-2 самых значимых мировых события (пожар, вулкан, сильный шторм), если они есть. Например: "Пока у нас тут затишье, в [регион мира] бушует [название события]. Это напоминает нам о силе природы. Кстати, а вы знали, что [интересный факт]?".
+4.  **Интегрируй Мировые События:** Вплетай в повествование 1-2 самых значимых мировых события (пожар, вулкан, сильный шторм), если они есть. Например: "Пока у нас тут затишье, в [регион мира] бушует [название события]. Это напоминает нам о силе природы.".
 5.  **Цельный Текст:** Без подзаголовков и Markdown.
 
 ДАННЫЕ (НЕ выводить, использовать для анализа):
@@ -313,7 +311,7 @@ ${JSON.stringify(dataPayload, null, 2)}
 </NOTE>
 
 <FUN_FACT>
-Интересный факт о погоде (вплети в рассказ): ${funFact}
+ОБЯЗАТЕЛЬНО ИНТЕГРИРУЙ В ТЕКСТ СЛЕДУЮЩИЙ ИНТЕРЕСНЫЙ ФАКТ, СДЕЛАВ ЕГО ЧАСТЬЮ ПОВЕСТВОВАНИЯ: ${funFact}
 </FUN_FACT>
 `;
 
