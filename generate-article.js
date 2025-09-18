@@ -1,18 +1,18 @@
 /**
  * generate-article.js
- * v4.1 (Narrative Freedom & Data Source Update)
+ * v4.2 (Fun Facts & Enhanced Narrative)
  *
  * CHANGELOG:
- * - Switched tropical storm data source from a defunct NHC link to the NASA EONET API for reliable, global event tracking.
- * - Reworked the Gemini prompt to de-emphasize rigid structure and encourage a more creative, narrative-driven approach.
- * - The AI is now instructed to identify the week's most significant weather event and build the story around it.
- * - Added explicit instructions to avoid common weather clichés.
- * - Updated data parsing for the new NASA EONET event structure.
+ * - Added integration with `weather-facts.js` to include a random, interesting weather fact in each article.
+ * - Created a `getRandomFact` utility to select a fact from the database.
+ * - Updated the Gemini prompt to instruct the AI to weave the fun fact and more detailed descriptions of tropical storms naturally into the main narrative.
+ * - The prompt now discourages separate, rigid sections for facts, pushing for a more holistic and engaging storytelling style.
  */
 
 import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
+import { weatherFacts } from "./weather-facts.js"; // ИМПОРТ ФАКТОВ
 
 /* ========================================================================== */
 /* 0. КОНФИГУРАЦИЯ                                                           */
@@ -27,7 +27,7 @@ const CONFIG = {
   },
   // Конфигурация API
   API: {
-    USER_AGENT: "WeatherBloggerApp/1.1 (+https://github.com/meteomonster/weather-blogger)",
+    USER_AGENT: "WeatherBloggerApp/1.2 (+https://github.com/meteomonster/weather-blogger)",
     TIMEOUT: 20000, // 20 секунд
     RETRIES: 3,     // 3 попытки с экспоненциальной задержкой
   },
@@ -76,6 +76,18 @@ const timeOfDayRu = TIME_OF_DAY_MAPPING_RU[timeOfDay] || timeOfDay;
 /* ========================================================================== */
 /* 3. УТИЛИТЫ                                                                 */
 /* ========================================================================== */
+
+/**
+ * Выбирает случайный факт о погоде из базы данных.
+ * @returns {string} Случайный факт.
+ */
+function getRandomFact() {
+  if (!weatherFacts || weatherFacts.length === 0) {
+    return "Интересные факты о погоде временно недоступны.";
+  }
+  const randomIndex = Math.floor(Math.random() * weatherFacts.length);
+  return weatherFacts[randomIndex];
+}
 
 /**
  * Выполняет GET-запрос с несколькими попытками в случае неудачи.
@@ -239,12 +251,14 @@ async function getWeatherData() {
     const arr = byDay.get(day) || [];
     const temps = arr.map(a => a.air_temperature).filter(n => typeof n === "number");
     const winds = arr.map(a => a.wind_speed).filter(n => typeof n === "number");
-    // ... (остальные переменные)
+    const gusts = arr.map(a => a.wind_gust).filter(n => typeof n === "number");
+    const clouds = arr.map(a => a.cloud).filter(n => typeof n === "number");
 
     processed.temperature_2m_max.push(temps.length ? Math.max(...temps) : null);
     processed.temperature_2m_min.push(temps.length ? Math.min(...temps) : null);
     processed.wind_speed_10m_max.push(winds.length ? Math.max(...winds) : null);
-    // ... (остальные агрегации)
+    processed.wind_gusts_10m_max.push(gusts.length ? Math.max(...gusts) : null);
+    processed.cloud_cover_max.push(clouds.length ? Math.max(...clouds) : null);
     const domDir = circularMeanDeg(arr.map(a => a.wind_dir));
     processed.wind_direction_dominant.push({ deg: domDir, compass: degToCompass(domDir) });
     const pr1h = arr.map(a => a.precip_next1h).filter(n => typeof n === "number");
@@ -282,7 +296,6 @@ async function getHistoricalRecord(date) {
 
     if (!time.length) return { text: "Нет надёжных исторических данных для этой даты.", data: null };
 
-    // Фильтруем данные, чтобы гарантированно использовать только нужный календарный день
     const recs = time
       .map((iso, i) => ({
         year: Number(iso.slice(0, 4)),
@@ -314,8 +327,6 @@ async function getHistoricalRecord(date) {
 /* ========================================================================== */
 /* 6. ПОЛУЧЕНИЕ LIVE-ЛЕНТЫ СОБЫТИЙ                                            */
 /* ========================================================================== */
-// ... (Функции getGlobalEvents и analyzeWeatherData остаются практически без изменений,
-// но будут использовать fetchWithRetry и получат JSDoc-комментарии)
 
 /**
  * Получает данные о глобальных погодных и геологических событиях.
@@ -336,23 +347,19 @@ async function getGlobalEvents() {
     } catch (e) { console.warn(`Не удалось получить данные о землетрясениях: ${e.message}`); }
 
     try {
-        // ИЗМЕНЕНО: Переход на API NASA EONET для глобального отслеживания штормов
         const stormsUrl = `https://eonet.gsfc.nasa.gov/api/v3/events?category=severeStorms&status=open&limit=5`;
         const data = await fetchWithRetry(stormsUrl, commonOptions);
         if (data?.events) {
             events.tropical_cyclones = data.events
                 .map(event => {
-                    // Находим последнюю доступную точку геометрии для получения свежих данных
                     const lastPoint = event.geometry[event.geometry.length - 1];
                     const windSpeedKts = lastPoint.magnitudeValue || 0;
                     return {
                         name: event.title,
-                        // Конвертируем узлы в км/ч
                         windSpeedKmh: Math.round(windSpeedKts * 1.852),
-                        location: "Global event" // EONET не предоставляет простой "бассейн" как NHC
+                        location: "Global event"
                     };
                 })
-                // Отфильтровываем события, не достигшие силы тропического шторма ( > 63 км/ч)
                 .filter(s => s.windSpeedKmh > 63);
         }
     } catch (e) { console.warn(`Не удалось получить данные о тропических циклонах от NASA: ${e.message}`); }
@@ -375,7 +382,6 @@ function analyzeWeatherData(weatherData, historicalRecord) {
     const forecastTodayMax = weatherData.temperature_2m_max_int[0];
     const recordData = historicalRecord.data;
 
-    // 1. Проверка на возможность побития рекорда
     if (recordData && forecastTodayMax !== null) {
         const recordMax = recordData.max.max;
         if (forecastTodayMax >= recordMax) {
@@ -385,7 +391,6 @@ function analyzeWeatherData(weatherData, historicalRecord) {
         }
     }
 
-    // 2. Поиск резких перепадов температур
     for (let i = 0; i < weatherData.time.length - 1; i++) {
         const tempToday = weatherData.temperature_2m_max_int[i];
         const tempTomorrow = weatherData.temperature_2m_max_int[i+1];
@@ -396,7 +401,6 @@ function analyzeWeatherData(weatherData, historicalRecord) {
         }
     }
     
-    // ... Другие аналитические проверки (заморозки, затяжные дожди и т.д.) ...
     return insights;
 }
 
@@ -423,12 +427,18 @@ async function generateArticle(weatherData, timeOfDayRu) {
   console.log("    Провожу предварительный анализ...");
   const analyticalHighlights = analyzeWeatherData(weatherData, historicalRecord);
   
+  console.log("    Выбираю интересный факт...");
+  const funFact = getRandomFact();
+
   const dataPayload = {
     dates: buildDateLabels(weatherData.time),
     analytical_highlights: analyticalHighlights,
     temperature_min_int: weatherData.temperature_2m_min_int,
     temperature_max_int: weatherData.temperature_2m_max_int,
-    // ... остальные данные
+    precipitation_amount_max: weatherData.precipitation_amount_max,
+    cloud_cover_max: weatherData.cloud_cover_max,
+    wind_speed_max: weatherData.wind_speed_10m_max,
+    wind_gusts_max: weatherData.wind_gusts_10m_max,
     wind_direction_dominant: weatherData.wind_direction_dominant.map(d => d.compass),
     globalEvents,
   };
@@ -446,9 +456,9 @@ ${analyticalHighlights.length > 0 ? analyticalHighlights.join("\n") : "На эт
 
 ТВОЙ ТВОРЧЕСКИЙ ПОДХОД:
 1.  **Найди Главного Героя:** Посмотри на <ANALYTICAL_HIGHLIGHTS>. Что самое важное на этой неделе? Резкое похолодание? Угроза рекорда? Затяжные дожди? Выбери ОДНО ключевое событие и сделай его центральной темой, "главным героем" твоего рассказа.
-2.  **Свободное Повествование:** Забудь о строгой структуре "заголовок-вступление-заключение". Вместо этого, построй живой рассказ. Начни с интриги, связанной с "главным героем", плавно перейди к деталям по дням, объясни причины (синоптическая ситуация), а затем вернись к основной теме в конце.
+2.  **Свободное Повествование:** Забудь о строгой структуре. Построй живой рассказ. Начни с интриги, связанной с "главным героем", плавно перейди к деталям по дням, объясни причины (синоптическая ситуация), а затем вернись к основной теме в конце.
 3.  **Избегай Клише:** Никаких "капризных дам", "дыхания атмосферы" и "осенней меланхолии". Ищи свежие, оригинальные метафоры или просто пиши прямо и по делу, но с харизмой.
-4.  **Интегрируй Факты:** Не создавай отдельные блоки для мировых событий или исторических фактов. Вплетай их в повествование там, где это уместно. Например: "Пока у нас тут намечается первый заморозок, в мировых океанах бушует [название шторма]...".
+4.  **Интегрируй Факты:** Не создавай отдельные блоки для мировых событий или фактов. Вплетай их в повествование там, где это уместно. Например: "Пока у нас тут намечается первый заморозок, в мировых океанах бушует [название шторма] со скоростью ветра до [скорость] км/ч. Опиши его мощь и потенциальную зону влияния. А знаете ли вы, что [интересный факт]?".
 5.  **Текст должен быть цельным.** Не используй подзаголовки и Markdown.
 
 ДАННЫЕ (НЕ выводить, использовать только для анализа):
@@ -459,6 +469,10 @@ ${JSON.stringify(dataPayload, null, 2)}
 <NOTE>
 Исторический факт для сегодняшнего дня (вплети его в рассказ): ${historicalRecord.text}
 </NOTE>
+
+<FUN_FACT>
+Интересный факт о погоде (вплети его в рассказ): ${funFact}
+</FUN_FACT>
 `;
 
   try {
