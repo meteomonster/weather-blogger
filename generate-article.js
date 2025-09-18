@@ -1,18 +1,19 @@
 /**
  * generate-article.js
- * v4.3 (Unique Facts Logic & Refinement)
+ * v4.4 (Modular Events & Prompt Upgrade)
  *
  * CHANGELOG:
- * - Replaced `getRandomFact` with `getUniqueRandomFact` to ensure each fact is used only once per cycle.
- * - The new logic tracks used facts in a `used-facts-log.json` file.
- * - When all facts from `weather-facts.js` have been used, the log is automatically cleared, and the cycle begins anew.
- * - This prevents repetition and keeps the articles fresh over a long period.
+ * - Removed the local `getGlobalEvents` function.
+ * - Now imports `getGlobalEventsData` from the new, dedicated `storms.js` module.
+ * - This simplifies the main file and adheres to the single-responsibility principle.
+ * - The main prompt has been updated to intelligently handle a wider range of global events (wildfires, volcanoes, etc.), instructing the AI to focus on the most significant ones.
  */
 
 import axios from "axios";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
 import { weatherFacts } from "./weather-facts.js";
+import { getGlobalEventsData } from "./storms.js"; // ИМПОРТ ИЗ НОВОГО МОДУЛЯ
 
 /* ========================================================================== */
 /* 0. КОНФИГУРАЦИЯ                                                           */
@@ -21,7 +22,7 @@ import { weatherFacts } from "./weather-facts.js";
 const CONFIG = {
   LOCATION: { LAT: 56.95, LON: 24.1, TIMEZONE: "Europe/Riga" },
   API: {
-    USER_AGENT: "WeatherBloggerApp/1.3 (+https://github.com/meteomonster/weather-blogger)",
+    USER_AGENT: "WeatherBloggerApp/1.4 (+https://github.com/meteomonster/weather-blogger)",
     TIMEOUT: 20000,
     RETRIES: 3,
   },
@@ -32,7 +33,7 @@ const CONFIG = {
   OUTPUT: {
     ARCHIVE_PREFIX: "article",
     LATEST_FILENAME: "latest-article.json",
-    USED_FACTS_LOG: "used-facts-log.json", // Файл для отслеживания фактов
+    USED_FACTS_LOG: "used-facts-log.json",
   },
 };
 
@@ -65,10 +66,6 @@ const timeOfDayRu = TIME_OF_DAY_MAPPING_RU[timeOfDay] || timeOfDay;
 /* 3. УТИЛИТЫ                                                                 */
 /* ========================================================================== */
 
-/**
- * Выбирает уникальный случайный факт, отслеживая использованные факты в файле.
- * @returns {string} Уникальный случайный факт.
- */
 function getUniqueRandomFact() {
   let usedIndices = [];
   try {
@@ -79,31 +76,19 @@ function getUniqueRandomFact() {
     console.warn("⚠️ Не удалось прочитать лог использованных фактов, начинаю заново.");
     usedIndices = [];
   }
-
   const allIndices = Array.from(weatherFacts.keys());
   let availableIndices = allIndices.filter(index => !usedIndices.includes(index));
-
   if (availableIndices.length === 0) {
     console.log("ℹ️ Все факты были использованы. Начинаю цикл заново.");
     availableIndices = allIndices;
     usedIndices = [];
   }
-
   const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
   usedIndices.push(randomIndex);
-  
   fs.writeFileSync(CONFIG.OUTPUT.USED_FACTS_LOG, JSON.stringify(usedIndices, null, 2), "utf-8");
-  
   return weatherFacts[randomIndex];
 }
 
-
-/**
- * Выполняет GET-запрос с несколькими попытками в случае неудачи.
- * @param {string} url URL для запроса.
- * @param {object} options Опции для axios.
- * @returns {Promise<object>} Промис, который разрешается с данными ответа.
- */
 async function fetchWithRetry(url, options) {
   for (let i = 0; i < CONFIG.API.RETRIES; i++) {
     try {
@@ -113,9 +98,7 @@ async function fetchWithRetry(url, options) {
       const isLastAttempt = i === CONFIG.API.RETRIES - 1;
       const errorMessage = error.response ? JSON.stringify(error.response.data) : error.message;
       console.warn(`⚠️ Попытка ${i + 1} запроса к ${url} не удалась: ${errorMessage}`);
-      if (isLastAttempt) {
-        throw new Error(`Не удалось получить данные с ${url} после ${CONFIG.API.RETRIES} попыток.`);
-      }
+      if (isLastAttempt) throw new Error(`Не удалось получить данные с ${url} после ${CONFIG.API.RETRIES} попыток.`);
       const delay = Math.pow(2, i) * 1000;
       await new Promise(res => setTimeout(res, delay));
     }
@@ -162,8 +145,6 @@ function buildDateLabels(dailyTime) {
     return `В${/^(в|с)/.test(weekday) ? "о" : ""} ${weekday}, ${human}`;
   });
 }
-
-// Функции getWeatherData, getHistoricalRecord, getGlobalEvents, analyzeWeatherData без изменений
 
 /* ========================================================================== */
 /* 4. ПОЛУЧЕНИЕ ДАННЫХ О ПОГОДЕ (MET.NO)                                      */
@@ -251,33 +232,7 @@ async function getHistoricalRecord(date) {
 }
 
 /* ========================================================================== */
-/* 6. ПОЛУЧЕНИЕ LIVE-ЛЕНТЫ СОБЫТИЙ                                            */
-/* ========================================================================== */
-async function getGlobalEvents() {
-    const todayUTC = new Date().toISOString().slice(0, 10);
-    const events = { earthquakes: [], tropical_cyclones: [] };
-    const commonOptions = { timeout: 15000, headers: { "User-Agent": CONFIG.API.USER_AGENT } };
-    try {
-        const eqUrl = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${todayUTC}T00:00:00&endtime=${todayUTC}T23:59:59&minmagnitude=5.0`;
-        const data = await fetchWithRetry(eqUrl, commonOptions);
-        events.earthquakes = (data?.features || []).map(f => ({ magnitude: f.properties?.mag, location: f.properties?.place }));
-    } catch (e) { console.warn(`Не удалось получить данные о землетрясениях: ${e.message}`); }
-    try {
-        const stormsUrl = `https://eonet.gsfc.nasa.gov/api/v3/events?category=severeStorms&status=open&limit=5`;
-        const data = await fetchWithRetry(stormsUrl, commonOptions);
-        if (data?.events) {
-            events.tropical_cyclones = data.events.map(event => ({
-                name: event.title,
-                windSpeedKmh: Math.round((event.geometry[event.geometry.length - 1].magnitudeValue || 0) * 1.852),
-                location: "Global event"
-            })).filter(s => s.windSpeedKmh > 63);
-        }
-    } catch (e) { console.warn(`Не удалось получить данные о тропических циклонах от NASA: ${e.message}`); }
-    return events;
-}
-
-/* ========================================================================== */
-/* 7. ПРЕДВАРИТЕЛЬНЫЙ АНАЛИЗ ДАННЫХ                                           */
+/* 6. ПРЕДВАРИТЕЛЬНЫЙ АНАЛИЗ ДАННЫХ                                           */
 /* ========================================================================== */
 function analyzeWeatherData(weatherData, historicalRecord) {
     const insights = [];
@@ -285,11 +240,11 @@ function analyzeWeatherData(weatherData, historicalRecord) {
     const forecastTodayMax = temperature_2m_max_int[0];
     const { data: recordData } = historicalRecord;
     if (recordData && forecastTodayMax !== null) {
-        const { max: recordMax } = recordData.max;
-        if (forecastTodayMax >= recordMax) {
-            insights.push(`Сегодняшний день может ПОБИТЬ исторический рекорд тепла (${recordMax.toFixed(1)}°C, ${recordData.max.year} г.), прогноз почти ${forecastTodayMax}°C!`);
-        } else if (Math.abs(forecastTodayMax - recordMax) <= 2) {
-            insights.push(`Сегодня мы близко подойдём к историческому рекорду тепла (${recordMax.toFixed(1)}°C, ${recordData.max.year} г.).`);
+        const { max: recordMaxVal } = recordData.max;
+        if (forecastTodayMax >= recordMaxVal) {
+            insights.push(`Сегодняшний день может ПОБИТЬ исторический рекорд тепла (${recordMaxVal.toFixed(1)}°C, ${recordData.max.year} г.), прогноз почти ${forecastTodayMax}°C!`);
+        } else if (Math.abs(forecastTodayMax - recordMaxVal) <= 2) {
+            insights.push(`Сегодня мы близко подойдём к историческому рекорду тепла (${recordMaxVal.toFixed(1)}°C, ${recordData.max.year} г.).`);
         }
     }
     for (let i = 0; i < time.length - 1; i++) {
@@ -305,80 +260,65 @@ function analyzeWeatherData(weatherData, historicalRecord) {
 }
 
 /* ========================================================================== */
-/* 8. ГЕНЕРАЦИЯ СТАТЬИ                                                        */
+/* 7. ГЕНЕРАЦИЯ СТАТЬИ                                                        */
 /* ========================================================================== */
-
-/**
- * Генерирует статью о погоде с помощью Google Gemini.
- * @param {object} weatherData Данные прогноза погоды.
- * @param {string} timeOfDayRu Время суток на русском (например, "утренний").
- * @returns {Promise<{article: string, modelUsed: string}>} Сгенерированная статья и использованная модель.
- */
 async function generateArticle(weatherData, timeOfDayRu) {
   const todayRiga = new Date(new Date().toLocaleString("en-US", { timeZone: CONFIG.LOCATION.TIMEZONE }));
   
   console.log("    Получаю исторические рекорды...");
   const historicalRecord = await getHistoricalRecord(todayRiga);
   
-  console.log("    Получаю данные о глобальных событиях...");
-  const globalEvents = await getGlobalEvents();
+  // ИСПОЛЬЗУЕМ НОВЫЙ МОДУЛЬ
+  const globalEvents = await getGlobalEventsData();
   
   console.log("    Провожу предварительный анализ...");
   const analyticalHighlights = analyzeWeatherData(weatherData, historicalRecord);
   
   console.log("    Выбираю уникальный факт...");
-  const funFact = getUniqueRandomFact(); // Используем новую функцию
+  const funFact = getUniqueRandomFact();
 
   const dataPayload = {
     dates: buildDateLabels(weatherData.time),
     analytical_highlights: analyticalHighlights,
     temperature_min_int: weatherData.temperature_2m_min_int,
     temperature_max_int: weatherData.temperature_2m_max_int,
-    precipitation_amount_max: weatherData.precipitation_amount_max,
-    cloud_cover_max: weatherData.cloud_cover_max,
-    wind_speed_max: weatherData.wind_speed_10m_max,
-    wind_gusts_max: weatherData.wind_gusts_10m_max,
     wind_direction_dominant: weatherData.wind_direction_dominant.map(d => d.compass),
     globalEvents,
   };
   
   const prompt = `
-Твоя роль: Опытный, харизматичный и немного ироничный метеоролог, который ведёт популярный блог о погоде в Риге. Ты не робот, зачитывающий цифры, а рассказчик, который находит в прогнозе погоды настоящую историю. Твой стиль — живой, образный, но всегда основанный на фактах.
+Твоя роль: Опытный, харизматичный метеоролог-рассказчик для блога о погоде в Риге. Твой стиль — живой, образный, с долей иронии, но всегда основанный на фактах.
 
-Твоя задача: Написать эксклюзивный ${timeOfDayRu} синоптический обзор. Твоя главная цель — не просто перечислить данные, а создать увлекательное повествование, сделав акцент на самых интересных погодных событиях недели.
+Твоя задача: Написать эксклюзивный ${timeOfDayRu} синоптический обзор как увлекательное повествование.
 
-КЛЮЧЕВЫЕ МОМЕНТЫ НЕДЕЛИ (АНАЛИТИКА):
-Я уже провёл предварительный анализ данных и выделил для тебя самое главное. Это основа твоего повествования:
+АНАЛИТИКА (ОСНОВА РАССКАЗА):
 <ANALYTICAL_HIGHLIGHTS>
 ${analyticalHighlights.length > 0 ? analyticalHighlights.join("\n") : "На этой неделе обойдётся без крайностей, погода будет довольно стабильной."}
 </ANALYTICAL_HIGHLIGHTS>
 
-ТВОЙ ТВОРЧЕСКИЙ ПОДХОД:
-1.  **Найди Главного Героя:** Посмотри на <ANALYTICAL_HIGHLIGHTS>. Что самое важное на этой неделе? Резкое похолодание? Угроза рекорда? Затяжные дожди? Выбери ОДНО ключевое событие и сделай его центральной темой, "главным героем" твоего рассказа.
-2.  **Свободное Повествование:** Забудь о строгой структуре. Построй живой рассказ. Начни с интриги, связанной с "главным героем", плавно перейди к деталям по дням, объясни причины (синоптическая ситуация), а затем вернись к основной теме в конце.
-3.  **Избегай Клише:** Никаких "капризных дам", "дыхания атмосферы" и "осенней меланхолии". Ищи свежие, оригинальные метафоры или просто пиши прямо и по делу, но с харизмой.
-4.  **Интегрируй Факты:** Не создавай отдельные блоки для мировых событий или фактов. Вплетай их в повествование там, где это уместно. Например: "Пока у нас тут намечается первый заморозок, в мировых океанах бушует [название шторма] со скоростью ветра до [скорость] км/ч. Опиши его мощь и потенциальную зону влияния. А знаете ли вы, что [интересный факт]?".
-5.  **Текст должен быть цельным.** Не используй подзаголовки и Markdown.
+ТВОРЧЕСКИЙ ПОДХОД:
+1.  **Главный Герой:** Выбери ОДНО ключевое событие из <ANALYTICAL_HIGHLIGHTS> и сделай его центральной темой рассказа.
+2.  **Свободное Повествование:** Строй живой рассказ вокруг "главного героя". Начни с интриги, плавно переходи к деталям по дням, объясняй причины (синоптическая ситуация).
+3.  **Избегай Клише:** Никаких "капризных дам" и "дыхания атмосферы". Ищи свежие метафоры.
+4.  **Интегрируй Факты:** Вплетай факты в повествование. Упомяни 1-2 самых значимых мировых события (пожар, вулкан, сильный шторм), если они есть. Например: "Пока у нас тут затишье, в [регион мира] бушует [название события]. Это напоминает нам о силе природы. Кстати, а вы знали, что [интересный факт]?".
+5.  **Цельный Текст:** Без подзаголовков и Markdown.
 
-ДАННЫЕ (НЕ выводить, использовать только для анализа):
+ДАННЫЕ (НЕ выводить, использовать для анализа):
 <DATA_JSON>
 ${JSON.stringify(dataPayload, null, 2)}
 </DATA_JSON>
 
 <NOTE>
-Исторический факт для сегодняшнего дня (вплети его в рассказ): ${historicalRecord.text}
+Исторический факт для сегодняшнего дня (вплети в рассказ): ${historicalRecord.text}
 </NOTE>
 
 <FUN_FACT>
-Интересный факт о погоде (вплети его в рассказ): ${funFact}
+Интересный факт о погоде (вплети в рассказ): ${funFact}
 </FUN_FACT>
 `;
 
   try {
-    const model = genAI.getGenerativeModel({
-      model: CONFIG.GEMINI.MODEL,
-      generationConfig: CONFIG.GEMINI.GENERATION_CONFIG,
-    });
+    const model = genAI.getGenerativeModel({ model: CONFIG.GEMINI.MODEL, generationConfig: CONFIG.GEMINI.GENERATION_CONFIG });
     console.log(`    Генерирую текст моделью: ${CONFIG.GEMINI.MODEL}...`);
     const result = await model.generateContent(prompt);
     const text = sanitizeArticle(result.response.text());
@@ -390,38 +330,26 @@ ${JSON.stringify(dataPayload, null, 2)}
 }
 
 /* ========================================================================== */
-/* 9. СОХРАНЕНИЕ РЕЗУЛЬТАТА                                                   */
+/* 8. СОХРАНЕНИЕ РЕЗУЛЬТАТА                                                   */
 /* ========================================================================== */
-
-/**
- * Сохраняет сгенерированную статью в JSON файлы.
- * @param {string} articleText Текст статьи.
- * @param {string} timeOfDay Идентификатор времени суток (например, "morning").
- * @param {string} modelUsed Название использованной модели.
- */
 function saveArticle(articleText, timeOfDay, modelUsed) {
   const now = new Date();
   const fileDate = now.toISOString().slice(0, 10);
   const displayDate = now.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric", timeZone: CONFIG.LOCATION.TIMEZONE });
-  
   const lines = articleText.split("\n");
   const titleIndex = lines.findIndex(l => l.trim().length > 0);
   const title = titleIndex > -1 ? lines[titleIndex].trim() : "Прогноз погоды в Риге";
   const content = titleIndex > -1 ? lines.slice(titleIndex + 1).join("\n").trim() : articleText;
-  
   const articleJson = { title, date: displayDate, time: timeOfDay, content, model: modelUsed };
   const archiveFileName = `${CONFIG.OUTPUT.ARCHIVE_PREFIX}-${fileDate}-${timeOfDay}.json`;
-  
   fs.writeFileSync(archiveFileName, JSON.stringify(articleJson, null, 2), "utf-8");
   fs.writeFileSync(CONFIG.OUTPUT.LATEST_FILENAME, JSON.stringify(articleJson, null, 2), "utf-8");
-  
   console.log(`✅ Статья (${timeOfDay}) сохранена в ${archiveFileName} и ${CONFIG.OUTPUT.LATEST_FILENAME}`);
 }
 
 /* ========================================================================== */
-/* 10. ОСНОВНОЙ ЗАПУСК                                                        */
+/* 9. ОСНОВНОЙ ЗАПУСК                                                         */
 /* ========================================================================== */
-
 (async () => {
   console.log(`🚀 Запуск генерации статьи (${timeOfDay})...`);
   try {
