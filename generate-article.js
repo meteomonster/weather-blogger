@@ -14,6 +14,9 @@ import { getHistoricalRecord } from "./api/open-meteo-api.js";
 import { getAirQualityData } from "./api/air-quality-api.js";
 import { getMarineData } from "./api/marine-api.js";
 import { getSpaceWeatherData } from "./api/space-weather-api.js";
+import { getGardeningData } from "./api/gardening-api.js";
+import { getBioWeatherData } from "./api/bio-api.js";
+import { getPhotographyData } from "./api/photography-api.js";
 
 // Импорт генераторов разделов
 import { generateLocalForecastSection } from "./modules/local-forecast.js";
@@ -22,6 +25,9 @@ import { generateHistoricalContextSection } from "./modules/historical-context.j
 import { generateAirQualitySection } from "./modules/air-quality.js";
 import { generateMarineSection } from "./modules/marine-forecast.js";
 import { generateAuroraSection } from "./modules/aurora-forecast.js";
+import { generateGardenerCornerSection } from "./modules/gardener-corner.js";
+import { generateBioForecastSection } from "./modules/bio-forecast.js";
+import { generatePhotographyGuideSection } from "./modules/photography-guide.js";
 
 
 // Импорт базы фактов
@@ -65,7 +71,10 @@ const CONFIG = {
         historicalData,
         airQualityData,
         marineData,
-        spaceWeatherData
+        spaceWeatherData,
+        gardeningData,
+        bioWeatherData,
+        photoGuideData,
     ] = await Promise.all([
         logPromise(getWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Прогноз погоды"),
         logPromise(getGlobalEventsData(), "Мировые события"),
@@ -73,6 +82,9 @@ const CONFIG = {
         logPromise(getAirQualityData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Качество воздуха"),
         logPromise(getMarineData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Морской прогноз"),
         logPromise(getSpaceWeatherData(), "Космопогода"),
+        logPromise(getGardeningData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Агропрогноз"),
+        logPromise(getBioWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Биометео показатели"),
+        logPromise(getPhotographyData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Фото-гид"),
     ]);
     const funFact = getUniqueRandomFact();
     console.log("    ✅ Все данные собраны");
@@ -91,6 +103,9 @@ const CONFIG = {
         airQualitySection,
         marineSection,
         auroraSection,
+        gardenerSection,
+        bioSection,
+        photoSection,
     ] = await Promise.all([
         // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
         logPromise(generateLocalForecastSection(weatherData, geminiConfig, CONFIG), "Абзац о прогнозе"),
@@ -99,6 +114,9 @@ const CONFIG = {
         logPromise(generateAirQualitySection(airQualityData, geminiConfig), "Абзац о качестве воздуха"),
         logPromise(generateMarineSection(marineData, geminiConfig), "Абзац о море"),
         logPromise(generateAuroraSection(spaceWeatherData, geminiConfig), "Абзац о северном сиянии"),
+        logPromise(generateGardenerCornerSection(gardeningData), "Уголок садовода"),
+        logPromise(generateBioForecastSection(bioWeatherData, airQualityData), "Биопрогноз"),
+        logPromise(generatePhotographyGuideSection(photoGuideData), "Гид фотографа"),
     ]);
     console.log("    ✅ Все разделы сгенерированы");
 
@@ -128,6 +146,18 @@ ${airQualitySection}
 <МОРСКОЙ_ВЕСТНИК>
 ${marineSection}
 </МОРСКОЙ_ВЕСТНИК>
+
+<УГОЛОК_САДОВОДА>
+${gardenerSection}
+</УГОЛОК_САДОВОДА>
+
+<БИОПРОГНОЗ>
+${bioSection}
+</БИОПРОГНОЗ>
+
+<ФОТОГИД>
+${photoSection}
+</ФОТОГИД>
 
 <КОСМИЧЕСКИЙ_ДОЗОР>
 ${auroraSection}
