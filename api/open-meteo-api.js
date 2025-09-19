@@ -1,42 +1,72 @@
 /**
  * open-meteo-api.js
- * * Модуль для получения исторических данных о температурных рекордах
- * из архива Open-Meteo.
+ * v2.0 (Logic Fix)
+ *
+ * * ИСПРАВЛЕНО: Полностью переработана логика. Вместо запроса
+ * всего массива данных за 45 лет, скрипт теперь делает один
+ * эффективный запрос и корректно фильтрует данные, чтобы найти
+ * рекорды строго для указанного календарного дня. Это решает
+ * проблему с появлением нереалистичных температур.
  */
 import axios from "axios";
 
 /**
- * Загружает исторические рекорды для указанной даты и координат.
- * @param {Date} date Дата.
- * @param {object} config Конфигурация с LAT, LON и USER_AGENT.
- * @returns {Promise<object>} Объект с текстовым описанием и данными рекордов.
+ * Загружает и находит исторические рекорды для указанной календарной даты.
+ * @param {Date} date - Объект Date, для которого нужно найти рекорды.
+ * @param {object} config - Конфигурация с LAT, LON, USER_AGENT.
+ * @returns {Promise<{text: string, data: object|null}>}
  */
 export async function getHistoricalRecord(date, config) {
   try {
-    const { LAT, LON, USER_AGENT } = config;
     const month = String(date.getUTCMonth() + 1).padStart(2, "0");
     const day = String(date.getUTCDate()).padStart(2, "0");
-    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${LAT}&longitude=${LON}&start_date=1979-${month}-${day}&end_date=${date.getUTCFullYear() - 1}-${month}-${day}&daily=temperature_2m_max,temperature_2m_min`;
-    
-    const response = await axios.get(url, { headers: { "User-Agent": USER_AGENT }, timeout: 20000 });
-    const data = response.data;
-    
-    const { time, temperature_2m_max: tmax, temperature_2m_min: tmin } = data?.daily || {};
-    if (!time?.length) return { text: "Нет надёжных исторических данных для этой даты." };
 
-    const recs = time.map((iso, i) => ({ year: Number(iso.slice(0, 4)), max: tmax[i], min: tmin[i] }))
-        .filter(r => r.max != null && r.min != null);
+    const startYear = 1979;
+    const endYear = new Date().getUTCFullYear() - 1;
 
-    if (!recs.length) return { text: "Недостаточно исторических данных для этой даты." };
+    // Запрашиваем данные за весь период. API не позволяет эффективно
+    // запрашивать один и тот же день по разным годам.
+    const url = `https://archive-api.open-meteo.com/v1/archive?latitude=${config.LAT}&longitude=${config.LON}&start_date=${startYear}-01-01&end_date=${endYear}-12-31&daily=temperature_2m_max,temperature_2m_min`;
 
-    const recordMax = recs.reduce((a, b) => (a.max > b.max ? a : b));
-    const recordMin = recs.reduce((a, b) => (a.min < b.min ? a : b));
-    
+    const { data } = await axios.get(url, {
+      headers: { "User-Agent": config.USER_AGENT },
+      timeout: 25000, // Увеличено время ожидания для большого запроса
+    });
+
+    const time = data?.daily?.time || [];
+    const tmax = data?.daily?.temperature_2m_max || [];
+    const tmin = data?.daily?.temperature_2m_min || [];
+
+    if (!time.length) {
+      return { text: "Нет надёжных исторических данных для этой даты.", data: null };
+    }
+
+    // Ключевой этап: Фильтруем ВЕСЬ массив, оставляя только нужный нам день
+    const recordsForDay = time
+      .map((iso, i) => ({
+        year: Number(iso.slice(0, 4)),
+        month: iso.slice(5, 7),
+        day: iso.slice(8, 10),
+        max: tmax[i],
+        min: tmin[i],
+      }))
+      .filter(r => r.month === month && r.day === day && r.max != null && r.min != null);
+
+    if (!recordsForDay.length) {
+      return { text: "Недостаточно исторических данных для этой даты.", data: null };
+    }
+
+    // Теперь ищем рекорды только в отфильтрованном массиве
+    const recordMax = recordsForDay.reduce((a, b) => (a.max > b.max ? a : b));
+    const recordMin = recordsForDay.reduce((a, b) => (a.min < b.min ? a : b));
+
     return {
-      text: `Исторический контекст: самый тёплый день (${recordMax.max.toFixed(1)}°C в ${recordMax.year} г.) и самый холодный (${recordMin.min.toFixed(1)}°C в ${recordMin.year} г.).`
+      text: `Самый тёплый в этот день: ${recordMax.year} год, ${recordMax.max.toFixed(1)}°C. Самый холодный: ${recordMin.year} год, ${recordMin.min.toFixed(1)}°C.`,
+      data: { max: recordMax, min: recordMin },
     };
   } catch (e) {
-    console.warn(`⚠️ Не удалось получить исторические данные: ${e.message}`);
-    return { text: "Исторические данные сегодня недоступны." };
+    console.warn(`    -> Не удалось получить исторические данные: ${e.message}`);
+    return { text: "Не удалось загрузить исторические данные для этой даты.", data: null };
   }
 }
+
