@@ -1,27 +1,46 @@
 /**
  * marine-forecast.js
- * v2.0 (Robustness Fix)
- * - ИСПРАВЛЕНО: Добавлена защита от null-значений, возвращаемых API.
- * Теперь, если температура воды или высота волн равны null, скрипт
- * не вызовет ошибку 'Cannot read properties of null (reading 'toFixed')',
- * а корректно обработает это.
+ * v2.1 (Hardened)
+ * - Защита от null/undefined и не-числовых значений (строки и т.п.)
+ * - Аккуратные дефолты, чтобы раздел всегда генерировался
  */
 
+const toNum = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const fmt = (v, digits = 1) =>
+  (typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "неизвестно");
+
 export async function generateMarineSection(marineData, geminiConfig) {
-  if (!marineData) {
+  if (!marineData || typeof marineData !== "object") {
     return "Данные о погоде на море сегодня недоступны.";
   }
 
-  // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем опциональную цепочку (?.) и оператор ??
-  // для безопасного доступа к данным и предоставления запасного значения.
+  // Популярные алиасы полей на всякий случай
+  const tempRaw =
+    marineData.temperature ??
+    marineData.seaTemp ??
+    marineData.sea_temperature ??
+    marineData.water_temperature;
+
+  const waveRaw =
+    marineData.wave_height ??
+    marineData.waveHeight ??
+    marineData.swell_height ??
+    marineData.swellHeight;
+
+  const temp = toNum(tempRaw);
+  const wave = toNum(waveRaw);
+
   const dataPayload = {
-    water_temperature: marineData.temperature?.toFixed(1) ?? "неизвестно",
-    wave_height: marineData.wave_height?.toFixed(1) ?? "неизвестно",
+    water_temperature: fmt(temp, 1), // °C
+    wave_height: fmt(wave, 1),       // м
   };
 
   const prompt = `
 Твоя роль: Морской синоптик, капитан дальнего плавания на пенсии.
-Твоя задача: Написать короткий, но информативный абзац о погоде на побережье Рижского залива. Используй морскую терминологию, но так, чтобы было понятно и обычным людям.
+Твоя задача: Написать короткий, но информативный абзац о погоде на побережье Рижского залива. Используй морскую терминологию, но понятно обычным людям.
 
 ДАННЫЕ:
 - Температура воды: ${dataPayload.water_temperature}°C
@@ -29,13 +48,17 @@ export async function generateMarineSection(marineData, geminiConfig) {
 `;
 
   try {
+    if (!geminiConfig?.genAI) {
+      // Фоллбек без ИИ — чтобы пайплайн не падал, даже если конфиг пустой
+      return `🌊 Морской прогноз — Температура воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
+    }
+
     const { genAI, modelName, generationConfig } = geminiConfig;
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
     const result = await model.generateContent(prompt);
     return result.response.text().trim();
   } catch (e) {
     console.error("    -> Ошибка при генерации раздела о море:", e.message);
-    return "Не удалось сгенерировать прогноз погоды на море.";
+    return `🌊 Морской прогноз — Температура воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
   }
 }
-
