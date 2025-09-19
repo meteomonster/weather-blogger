@@ -1,35 +1,41 @@
 /**
  * marine-forecast.js
- * "Эксперт-мореплаватель": Генерирует абзац о погоде на море.
+ * v2.0 (Robustness Fix)
+ * - ИСПРАВЛЕНО: Добавлена защита от null-значений, возвращаемых API.
+ * Теперь, если температура воды или высота волн равны null, скрипт
+ * не вызовет ошибку 'Cannot read properties of null (reading 'toFixed')',
+ * а корректно обработает это.
  */
-import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function generateMarineSection(marineData, geminiConfig) {
   if (!marineData) {
-    return "Прогноз погоды для Рижского залива сегодня недоступен.";
+    return "Данные о погоде на море сегодня недоступны.";
   }
 
+  // --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Используем опциональную цепочку (?.) и оператор ??
+  // для безопасного доступа к данным и предоставления запасного значения.
+  const dataPayload = {
+    water_temperature: marineData.temperature?.toFixed(1) ?? "неизвестно",
+    wave_height: marineData.wave_height?.toFixed(1) ?? "неизвестно",
+  };
+
   const prompt = `
-Твоя роль: Опытный смотритель маяка, который делится сводкой для побережья Риги.
-Твоя задача: На основе данных JSON, написать краткий (2-3 предложения) и образный
-абзац о температуре воды и волнении в Рижском заливе.
+Твоя роль: Морской синоптик, капитан дальнего плавания на пенсии.
+Твоя задача: Написать короткий, но информативный абзац о погоде на побережье Рижского залива. Используй морскую терминологию, но так, чтобы было понятно и обычным людям.
 
-Данные для анализа:
-${JSON.stringify(marineData, null, 2)}
-
-Пример вывода: "Рижский залив сегодня спокоен. Температура воды составляет
-освежающие ${Math.round(marineData.sea_surface_temperature)}°C, а с
-${marineData.wave_direction.toFixed(0)} градусов дует лёгкий бриз,
-поднимая волну не выше ${marineData.wave_height.toFixed(1)} метра. Идеальные
-условия для прогулки у кромки воды."
+ДАННЫЕ:
+- Температура воды: ${dataPayload.water_temperature}°C
+- Максимальная высота волны: ${dataPayload.wave_height} м
 `;
 
   try {
-    const model = geminiConfig.genAI.getGenerativeModel({ model: geminiConfig.modelName });
+    const { genAI, modelName, generationConfig } = geminiConfig;
+    const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
     const result = await model.generateContent(prompt);
     return result.response.text().trim();
-  } catch (error) {
-    console.warn(`    -> Ошибка генерации морского раздела: ${error.message}`);
-    return "Морской прогноз составить не удалось.";
+  } catch (e) {
+    console.error("    -> Ошибка при генерации раздела о море:", e.message);
+    return "Не удалось сгенерировать прогноз погоды на море.";
   }
 }
+
