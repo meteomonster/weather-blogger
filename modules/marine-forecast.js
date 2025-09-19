@@ -5,6 +5,8 @@
  * - Аккуратные дефолты, чтобы раздел всегда генерировался
  */
 
+const HEADING = "🌊 Морской прогноз";
+
 const toNum = (v) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -14,7 +16,7 @@ const fmt = (v, digits = 1) =>
 
 export async function generateMarineSection(marineData, geminiConfig) {
   if (!marineData || typeof marineData !== "object") {
-    return "Данные о погоде на море сегодня недоступны.";
+    return `${HEADING}\n\nДанные о погоде на море сегодня недоступны.`;
   }
 
   // Популярные алиасы полей на всякий случай
@@ -40,7 +42,7 @@ export async function generateMarineSection(marineData, geminiConfig) {
 
   const prompt = `
 Твоя роль: Морской синоптик, капитан дальнего плавания на пенсии.
-Твоя задача: Написать короткий, но информативный абзац о погоде на побережье Рижского залива. Используй морскую терминологию, но понятно обычным людям.
+Твоя задача: Написать короткий, но информативный абзац о погоде на побережье Рижского залива. Используй морскую терминологию, но понятно обычным людям. Тон — дружеский и поддерживающий, как у опытного шкипера, который делится советами с командой.
 
 ДАННЫЕ:
 - Температура воды: ${dataPayload.water_temperature}°C
@@ -50,15 +52,15 @@ export async function generateMarineSection(marineData, geminiConfig) {
   try {
     if (!geminiConfig?.genAI) {
       // Фоллбек без ИИ — чтобы пайплайн не падал, даже если конфиг пустой
-      return `🌊 Морской прогноз — Температура воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
+      return `${HEADING}\n\nТемпература воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
     }
 
     const { genAI, modelName, generationConfig } = geminiConfig;
     const model = genAI.getGenerativeModel({ model: modelName, generationConfig });
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    return `${HEADING}\n\n${result.response.text().trim()}`;
   } catch (e) {
     console.error("    -> Ошибка при генерации раздела о море:", e.message);
-    return `🌊 Морской прогноз — Температура воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
+    return `${HEADING}\n\nТемпература воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
   }
 }

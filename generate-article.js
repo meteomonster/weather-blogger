@@ -14,6 +14,9 @@ import { getHistoricalRecord } from "./api/open-meteo-api.js";
 import { getAirQualityData } from "./api/air-quality-api.js";
 import { getMarineData } from "./api/marine-api.js";
 import { getSpaceWeatherData } from "./api/space-weather-api.js";
+import { getGardeningData } from "./api/gardening-api.js";
+import { getBioWeatherData } from "./api/bio-api.js";
+import { getPhotographyData } from "./api/photography-api.js";
 
 // Импорт генераторов разделов
 import { generateLocalForecastSection } from "./modules/local-forecast.js";
@@ -22,6 +25,9 @@ import { generateHistoricalContextSection } from "./modules/historical-context.j
 import { generateAirQualitySection } from "./modules/air-quality.js";
 import { generateMarineSection } from "./modules/marine-forecast.js";
 import { generateAuroraSection } from "./modules/aurora-forecast.js";
+import { generateGardenerCornerSection } from "./modules/gardener-corner.js";
+import { generateBioForecastSection } from "./modules/bio-forecast.js";
+import { generatePhotographyGuideSection } from "./modules/photography-guide.js";
 
 
 // Импорт базы фактов
@@ -65,7 +71,10 @@ const CONFIG = {
         historicalData,
         airQualityData,
         marineData,
-        spaceWeatherData
+        spaceWeatherData,
+        gardeningData,
+        bioWeatherData,
+        photoGuideData,
     ] = await Promise.all([
         logPromise(getWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Прогноз погоды"),
         logPromise(getGlobalEventsData(), "Мировые события"),
@@ -73,8 +82,12 @@ const CONFIG = {
         logPromise(getAirQualityData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Качество воздуха"),
         logPromise(getMarineData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Морской прогноз"),
         logPromise(getSpaceWeatherData(), "Космопогода"),
+        logPromise(getGardeningData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Агропрогноз"),
+        logPromise(getBioWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Биометео показатели"),
+        logPromise(getPhotographyData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Фото-гид"),
     ]);
     const funFact = getUniqueRandomFact();
+    const closingFact = getUniqueRandomFact();
     console.log("    ✅ Все данные собраны");
 
     console.log("✍️  [2/4] Генерация разделов статьи (параллельно)...");
@@ -91,6 +104,9 @@ const CONFIG = {
         airQualitySection,
         marineSection,
         auroraSection,
+        gardenerSection,
+        bioSection,
+        photoSection,
     ] = await Promise.all([
         // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
         logPromise(generateLocalForecastSection(weatherData, geminiConfig, CONFIG), "Абзац о прогнозе"),
@@ -99,13 +115,25 @@ const CONFIG = {
         logPromise(generateAirQualitySection(airQualityData, geminiConfig), "Абзац о качестве воздуха"),
         logPromise(generateMarineSection(marineData, geminiConfig), "Абзац о море"),
         logPromise(generateAuroraSection(spaceWeatherData, geminiConfig), "Абзац о северном сиянии"),
+        logPromise(generateGardenerCornerSection(gardeningData), "Уголок садовода"),
+        logPromise(generateBioForecastSection(bioWeatherData, airQualityData), "Биопрогноз"),
+        logPromise(generatePhotographyGuideSection(photoGuideData), "Гид фотографа"),
     ]);
     console.log("    ✅ Все разделы сгенерированы");
 
     console.log("📝 [3/4] Сборка финальной статьи...");
     const finalPrompt = `
 Твоя роль: Главный редактор, который собирает из готовых блоков цельную и увлекательную статью для ${timeOfDayRu} выпуска погодного блога Риги.
-Твоя задача: Написать яркий заголовок, сильное вступление и логичное заключение. Между готовыми блоками сделай плавные, логичные переходы. НЕ переписывай текст ассистентов, а именно компонуй его в единый рассказ.
+Твоя задача: Написать яркий заголовок, тёплое вступление и логичное заключение. Между готовыми блоками сделай плавные, дружелюбные переходы. НЕ переписывай текст ассистентов, а именно компонуй его в единый рассказ.
+Тон: дружелюбный, заботливый, разговорный — словно делишься новостями с хорошим знакомым.
+
+Структура статьи:
+1. Заголовок.
+2. Вступление (2-3 предложения).
+3. Затем блоки в следующем порядке: 🌤️ Прогноз на неделю → 🌍 События в мире → 📜 Истории и факты → 🌬️ Качество воздуха → 🌊 Морской прогноз → 🌿 Уголок садовода → 💚 Биопрогноз → 📸 Гид фотографа → 🌌 Космический дозор.
+   Перед каждым заголовком добавь короткую дружескую подводку (1 предложение), но не изменяй текст и подзаголовок блока. Если заголовок уже присутствует, не дублируй его.
+4. Заверши основную часть коротким выводом (1-2 предложения) в том же тоне.
+5. Добавь финальный раздел «🔖 Послесловие» (2-3 предложения): пригласи читателя вернуться завтра и обыграй этот факт дня: ${closingFact}
 
 Вот готовые блоки от твоих экспертов:
 
@@ -128,6 +156,18 @@ ${airQualitySection}
 <МОРСКОЙ_ВЕСТНИК>
 ${marineSection}
 </МОРСКОЙ_ВЕСТНИК>
+
+<УГОЛОК_САДОВОДА>
+${gardenerSection}
+</УГОЛОК_САДОВОДА>
+
+<БИОПРОГНОЗ>
+${bioSection}
+</БИОПРОГНОЗ>
+
+<ФОТОГИД>
+${photoSection}
+</ФОТОГИД>
 
 <КОСМИЧЕСКИЙ_ДОЗОР>
 ${auroraSection}

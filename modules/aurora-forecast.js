@@ -4,9 +4,11 @@
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+const HEADING = "🌌 Космический дозор";
+
 export async function generateAuroraSection(spaceData, geminiConfig) {
   if (!spaceData || spaceData.kp_index == null) {
-    return "Прогноз космической погоды в данный момент недоступен.";
+    return `${HEADING}\n\nПрогноз космической погоды в данный момент недоступен.`;
   }
 
   const prompt = `
@@ -14,6 +16,7 @@ export async function generateAuroraSection(spaceData, geminiConfig) {
 Твоя задача: На основе Kp-индекса, написать краткий (2-3 предложения) и понятный
 прогноз вероятности увидеть северное сияние над Латвией. Объясни, что значит
 текущий Kp-индекс. Kp-индекс 5 и выше - хороший шанс, ниже 4 - маловероятно.
+Тон — дружелюбный и вдохновляющий, как у наставника ночных наблюдателей.
 
 Данные для анализа:
 Kp-индекс: ${spaceData.kp_index}
@@ -31,9 +34,9 @@ Kp-индекс: ${spaceData.kp_index}
   try {
     const model = geminiConfig.genAI.getGenerativeModel({ model: geminiConfig.modelName });
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    return `${HEADING}\n\n${result.response.text().trim()}`;
   } catch (error) {
     console.warn(`    -> Ошибка генерации раздела об авроре: ${error.message}`);
-    return "Прогноз авроры составить не удалось.";
+    return `${HEADING}\n\nПрогноз авроры составить не удалось.`;
   }
 }
