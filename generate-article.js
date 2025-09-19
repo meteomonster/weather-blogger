@@ -1,9 +1,9 @@
 /**
  * generate-article.js
- * v5.2 (Fix & Enhanced Logging)
- * * ИСПРАВЛЕНО: Критическая опечатка `getGenerModel` -> `getGenerativeModel`.
- * * УЛУЧШЕНО: Добавлено детальное логирование для всех асинхронных
- * операций, чтобы точно отслеживать, какой этап выполняется.
+ * v5.3 (Timezone Fix)
+ * * ИСПРАВЛЕНО: Критическая ошибка с часовым поясом. Скрипт теперь
+ * корректно определяет текущую дату в целевой таймзоне (Europe/Riga),
+ * чтобы всегда запрашивать исторические рекорды для правильного дня.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
@@ -50,12 +50,15 @@ const CONFIG = {
   console.log(`🚀 Запуск генерации (${timeOfDayRu})...`);
 
   try {
+    // --- ИСПРАВЛЕНИЕ: Корректное определение даты в целевом часовом поясе ---
+    const rigaDate = getTodayForTimezone(CONFIG.LOCATION.TIMEZONE);
+
     // --- ЭТАП 1: Параллельный сбор всех данных ---
     console.log("📊 [1/4] Сбор данных (параллельно)...");
     const [weatherData, globalEvents, historicalData] = await Promise.all([
         logPromise(getWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Прогноз погоды (MET.NO)"),
         logPromise(getGlobalEventsData(), "Мировые события (NASA)"),
-        logPromise(getHistoricalRecord(new Date(), { ...CONFIG.LOCATION, ...CONFIG.API }), "Исторические рекорды (Open-Meteo)")
+        logPromise(getHistoricalRecord(rigaDate, { ...CONFIG.LOCATION, ...CONFIG.API }), "Исторические рекорды (Open-Meteo)")
     ]);
     const funFact = getUniqueRandomFact();
     console.log("    ✅ Все данные собраны");
@@ -125,11 +128,19 @@ ${historySection}
 /* ========================================================================== */
 
 /**
- * Обертка для промисов, которая добавляет логирование начала и конца операции.
- * @param {Promise} promise Асинхронная операция.
- * @param {string} name Имя операции для лога.
- * @returns {Promise}
+ * Возвращает объект Date, представляющий начало сегодняшнего дня в указанной временной зоне.
+ * @param {string} timeZone IANA-идентификатор таймзоны (напр., 'Europe/Riga').
+ * @returns {Date}
  */
+function getTodayForTimezone(timeZone) {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+    const partValue = (type) => parts.find(p => p.type === type)?.value || '';
+    const dateString = `${partValue('year')}-${partValue('month')}-${partValue('day')}`;
+    // Создаем дату на 12:00 UTC, чтобы избежать проблем с переходом на летнее/зимнее время
+    return new Date(`${dateString}T12:00:00Z`);
+}
+
 function logPromise(promise, name) {
     console.log(`    -> Запускаю: ${name}...`);
     return promise.then(result => {
