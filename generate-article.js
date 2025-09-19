@@ -1,3 +1,4 @@
+
 /**
  * generate-article.js
  * v6.1 (Critical Fix)
@@ -11,6 +12,7 @@ import fs from "fs";
 import { getWeatherData } from "./api/met-no-api.js";
 import { getGlobalEventsData } from "./api/nasa-api.js";
 import { getHistoricalRecord } from "./api/open-meteo-api.js";
+
 import { getAirQualityData } from "./api/air-quality-api.js";
 import { getMarineData } from "./api/marine-api.js";
 import { getSpaceWeatherData } from "./api/space-weather-api.js";
@@ -18,11 +20,13 @@ import { getGardeningData } from "./api/gardening-api.js";
 import { getBioWeatherData } from "./api/bio-api.js";
 import { getPhotographyData } from "./api/photography-api.js";
 
+
 // Импорт генераторов разделов
 import { generateLocalForecastSection } from "./modules/local-forecast.js";
 import { generateGlobalEventsSection } from "./modules/global-events.js";
 import { generateHistoricalContextSection } from "./modules/historical-context.js";
 import { generateAirQualitySection } from "./modules/air-quality.js";
+
 import { generateMarineSection } from "./modules/marine-forecast.js";
 import { generateAuroraSection } from "./modules/aurora-forecast.js";
 import { generateGardenerCornerSection } from "./modules/gardener-corner.js";
@@ -65,6 +69,7 @@ const CONFIG = {
     const rigaDate = getTodayForTimezone(CONFIG.LOCATION.TIMEZONE);
 
     console.log("📊 [1/4] Сбор данных (параллельно)...");
+
     const [
         weatherData,
         globalEvents,
@@ -86,6 +91,7 @@ const CONFIG = {
         logPromise(getBioWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Биометео показатели"),
         logPromise(getPhotographyData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Фото-гид"),
     ]);
+
     const [funFactRaw, closingFactRaw] = getUniqueRandomFacts(2);
     const funFact = funFactRaw ?? "Погода полна сюрпризов — мы уже готовим новые факты.";
     const closingFact = closingFactRaw ?? funFact;
@@ -98,6 +104,7 @@ const CONFIG = {
         generationConfig: CONFIG.GEMINI.GENERATION_CONFIG,
     };
     
+
     const [
         localSection,
         globalSection,
@@ -120,6 +127,7 @@ const CONFIG = {
         logPromise(generateBioForecastSection(bioWeatherData, airQualityData), "Биопрогноз"),
         logPromise(generatePhotographyGuideSection(photoGuideData), "Гид фотографа"),
     ]);
+
     console.log("    ✅ Все разделы сгенерированы");
 
     console.log("📝 [3/4] Сборка финальной статьи...");
@@ -173,6 +181,7 @@ ${photoSection}
 <КОСМИЧЕСКИЙ_ДОЗОР>
 ${auroraSection}
 </КОСМИЧЕСКИЙ_ДОЗОР>
+
 `;
     
     const model = geminiConfig.genAI.getGenerativeModel({ model: geminiConfig.modelName, generationConfig: geminiConfig.generationConfig });
