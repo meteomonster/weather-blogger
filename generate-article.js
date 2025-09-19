@@ -86,8 +86,9 @@ const CONFIG = {
         logPromise(getBioWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Биометео показатели"),
         logPromise(getPhotographyData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Фото-гид"),
     ]);
-    const funFact = getUniqueRandomFact();
-    const closingFact = getUniqueRandomFact();
+    const [funFactRaw, closingFactRaw] = getUniqueRandomFacts(2);
+    const funFact = funFactRaw ?? "Погода полна сюрпризов — мы уже готовим новые факты.";
+    const closingFact = closingFactRaw ?? funFact;
     console.log("    ✅ Все данные собраны");
 
     console.log("✍️  [2/4] Генерация разделов статьи (параллельно)...");
@@ -213,28 +214,45 @@ function logPromise(promise, name) {
     });
 }
 
-function getUniqueRandomFact() {
-  let usedIndices = [];
+function getUniqueRandomFacts(count = 1) {
   const logFile = CONFIG.OUTPUT.USED_FACTS_LOG;
+  let usedIndices = [];
   try {
     if (fs.existsSync(logFile)) {
-      usedIndices = JSON.parse(fs.readFileSync(logFile, "utf-8"));
+      const parsed = JSON.parse(fs.readFileSync(logFile, "utf-8"));
+      if (Array.isArray(parsed)) {
+        usedIndices = parsed;
+      }
     }
-  } catch { usedIndices = []; }
-  
-  const allIndices = Array.from(weatherFacts.keys());
-  let availableIndices = allIndices.filter(index => !usedIndices.includes(index));
-  
-  if (availableIndices.length === 0) {
-    availableIndices = allIndices;
+  } catch {
     usedIndices = [];
   }
-  
-  const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
-  usedIndices.push(randomIndex);
-  fs.writeFileSync(logFile, JSON.stringify(usedIndices, null, 2), "utf-8");
-  
-  return weatherFacts[randomIndex];
+
+  const allIndices = weatherFacts.map((_, index) => index);
+  const chosen = [];
+
+  for (let i = 0; i < count; i += 1) {
+    let available = allIndices.filter(
+      (index) => !usedIndices.includes(index) && !chosen.includes(index)
+    );
+
+    if (available.length === 0) {
+      usedIndices = [];
+      available = allIndices.filter((index) => !chosen.includes(index));
+    }
+
+    if (available.length === 0) {
+      break;
+    }
+
+    const randomIndex = available[Math.floor(Math.random() * available.length)];
+    chosen.push(randomIndex);
+  }
+
+  const updatedLog = Array.from(new Set([...usedIndices, ...chosen]));
+  fs.writeFileSync(logFile, JSON.stringify(updatedLog, null, 2), "utf-8");
+
+  return chosen.map((index) => weatherFacts[index]);
 }
 
 function saveArticle(articleText, timeOfDay, modelUsed) {
