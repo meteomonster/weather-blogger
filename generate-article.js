@@ -1,10 +1,8 @@
 /**
  * generate-article.js
- * v6.0 (Modular Expansion)
- * - Интегрированы три новых раздела: качество воздуха, морской прогноз и
- * прогноз северного сияния.
- * - Добавлены новые API-модули и модули-эксперты.
- * - Главный скрипт обновлен для параллельного вызова всех 7 модулей.
+ * v6.1 (Critical Fix)
+ * - ИСПРАВЛЕНО: Главный скрипт теперь корректно передает объект CONFIG
+ * в модуль local-forecast, устраняя ошибку 'Cannot read properties of undefined (reading 'TIMEZONE')'.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
@@ -94,7 +92,8 @@ const CONFIG = {
         marineSection,
         auroraSection,
     ] = await Promise.all([
-        logPromise(generateLocalForecastSection(weatherData, geminiConfig), "Абзац о прогнозе"),
+        // --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+        logPromise(generateLocalForecastSection(weatherData, geminiConfig, CONFIG), "Абзац о прогнозе"),
         logPromise(generateGlobalEventsSection(globalEvents, geminiConfig), "Абзац о событиях"),
         logPromise(generateHistoricalContextSection(historicalData, funFact, geminiConfig), "Абзац об истории"),
         logPromise(generateAirQualitySection(airQualityData, geminiConfig), "Абзац о качестве воздуха"),
