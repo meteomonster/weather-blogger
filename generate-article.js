@@ -1,9 +1,10 @@
 /**
  * generate-article.js
- * v5.3 (Timezone Fix)
- * * ИСПРАВЛЕНО: Критическая ошибка с часовым поясом. Скрипт теперь
- * корректно определяет текущую дату в целевой таймзоне (Europe/Riga),
- * чтобы всегда запрашивать исторические рекорды для правильного дня.
+ * v6.0 (Modular Expansion)
+ * - Интегрированы три новых раздела: качество воздуха, морской прогноз и
+ * прогноз северного сияния.
+ * - Добавлены новые API-модули и модули-эксперты.
+ * - Главный скрипт обновлен для параллельного вызова всех 7 модулей.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import fs from "fs";
@@ -12,13 +13,20 @@ import fs from "fs";
 import { getWeatherData } from "./api/met-no-api.js";
 import { getGlobalEventsData } from "./api/nasa-api.js";
 import { getHistoricalRecord } from "./api/open-meteo-api.js";
+import { getAirQualityData } from "./api/air-quality-api.js";
+import { getMarineData } from "./api/marine-api.js";
+import { getSpaceWeatherData } from "./api/space-weather-api.js";
 
 // Импорт генераторов разделов
 import { generateLocalForecastSection } from "./modules/local-forecast.js";
 import { generateGlobalEventsSection } from "./modules/global-events.js";
 import { generateHistoricalContextSection } from "./modules/historical-context.js";
+import { generateAirQualitySection } from "./modules/air-quality.js";
+import { generateMarineSection } from "./modules/marine-forecast.js";
+import { generateAuroraSection } from "./modules/aurora-forecast.js";
 
-// Импорт базы фактов из папки /data/
+
+// Импорт базы фактов
 import { weatherFacts } from "./data/weather-facts.js";
 
 /* ========================================================================== */
@@ -27,10 +35,10 @@ import { weatherFacts } from "./data/weather-facts.js";
 
 const CONFIG = {
   LOCATION: { LAT: 56.95, LON: 24.1, TIMEZONE: "Europe/Riga" },
-  API: { USER_AGENT: "WeatherBloggerApp/2.0 (+https://github.com/meteomonster/weather-blogger)" },
+  API: { USER_AGENT: "WeatherBloggerApp/3.0 (+https://github.com/meteomonster/weather-blogger)" },
   GEMINI: {
     MODEL: "gemini-1.5-flash-latest",
-    GENERATION_CONFIG: { temperature: 0.8, topP: 0.9, topK: 40, maxOutputTokens: 3000 },
+    GENERATION_CONFIG: { temperature: 0.8, topP: 0.9, topK: 40, maxOutputTokens: 4000 },
   },
   OUTPUT: {
     ARCHIVE_PREFIX: "article",
@@ -50,41 +58,55 @@ const CONFIG = {
   console.log(`🚀 Запуск генерации (${timeOfDayRu})...`);
 
   try {
-    // --- ИСПРАВЛЕНИЕ: Корректное определение даты в целевом часовом поясе ---
     const rigaDate = getTodayForTimezone(CONFIG.LOCATION.TIMEZONE);
 
-    // --- ЭТАП 1: Параллельный сбор всех данных ---
     console.log("📊 [1/4] Сбор данных (параллельно)...");
-    const [weatherData, globalEvents, historicalData] = await Promise.all([
-        logPromise(getWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Прогноз погоды (MET.NO)"),
-        logPromise(getGlobalEventsData(), "Мировые события (NASA)"),
-        logPromise(getHistoricalRecord(rigaDate, { ...CONFIG.LOCATION, ...CONFIG.API }), "Исторические рекорды (Open-Meteo)")
+    const [
+        weatherData,
+        globalEvents,
+        historicalData,
+        airQualityData,
+        marineData,
+        spaceWeatherData
+    ] = await Promise.all([
+        logPromise(getWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Прогноз погоды"),
+        logPromise(getGlobalEventsData(), "Мировые события"),
+        logPromise(getHistoricalRecord(rigaDate, { ...CONFIG.LOCATION, ...CONFIG.API }), "Исторические рекорды"),
+        logPromise(getAirQualityData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Качество воздуха"),
+        logPromise(getMarineData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Морской прогноз"),
+        logPromise(getSpaceWeatherData(), "Космопогода"),
     ]);
     const funFact = getUniqueRandomFact();
     console.log("    ✅ Все данные собраны");
 
-    // --- ЭТАП 2: Параллельная генерация разделов ---
     console.log("✍️  [2/4] Генерация разделов статьи (параллельно)...");
     const geminiConfig = {
         genAI: new GoogleGenerativeAI(process.env.GEMINI_API_KEY),
         modelName: CONFIG.GEMINI.MODEL,
         generationConfig: CONFIG.GEMINI.GENERATION_CONFIG,
-        location: CONFIG.LOCATION,
     };
     
-    const [localSection, globalSection, historySection] = await Promise.all([
+    const [
+        localSection,
+        globalSection,
+        historySection,
+        airQualitySection,
+        marineSection,
+        auroraSection,
+    ] = await Promise.all([
         logPromise(generateLocalForecastSection(weatherData, geminiConfig), "Абзац о прогнозе"),
         logPromise(generateGlobalEventsSection(globalEvents, geminiConfig), "Абзац о событиях"),
-        logPromise(generateHistoricalContextSection(historicalData, funFact, geminiConfig), "Абзац об истории")
+        logPromise(generateHistoricalContextSection(historicalData, funFact, geminiConfig), "Абзац об истории"),
+        logPromise(generateAirQualitySection(airQualityData, geminiConfig), "Абзац о качестве воздуха"),
+        logPromise(generateMarineSection(marineData, geminiConfig), "Абзац о море"),
+        logPromise(generateAuroraSection(spaceWeatherData, geminiConfig), "Абзац о северном сиянии"),
     ]);
     console.log("    ✅ Все разделы сгенерированы");
 
-    // --- ЭТАП 3: Финальная сборка статьи ---
     console.log("📝 [3/4] Сборка финальной статьи...");
     const finalPrompt = `
-Твоя роль: Главный редактор популярного блога о погоде в Риге. Твой стиль — живой, харизматичный, с легкой иронией.
-
-Твоя задача: Собрать из готовых абзацев, написанных твоими ассистентами, единую, гладкую и увлекательную статью. Твоя работа — написать яркий заголовок, сильное вступление и логичное заключение, а также обеспечить плавные переходы между блоками. Не переписывай текст ассистентов, а именно компонуй его.
+Твоя роль: Главный редактор, который собирает из готовых блоков цельную и увлекательную статью для ${timeOfDayRu} выпуска погодного блога Риги.
+Твоя задача: Написать яркий заголовок, сильное вступление и логичное заключение. Между готовыми блоками сделай плавные, логичные переходы. НЕ переписывай текст ассистентов, а именно компонуй его в единый рассказ.
 
 Вот готовые блоки от твоих экспертов:
 
@@ -100,7 +122,17 @@ ${globalSection}
 ${historySection}
 </ИСТОРИЯ_И_ФАКТЫ>
 
-Теперь собери из этого цельную статью для ${timeOfDayRu} выпуска.
+<КАЧЕСТВО_ВОЗДУХА>
+${airQualitySection}
+</КАЧЕСТВО_ВОЗДУХА>
+
+<МОРСКОЙ_ВЕСТНИК>
+${marineSection}
+</МОРСКОЙ_ВЕСТНИК>
+
+<КОСМИЧЕСКИЙ_ДОЗОР>
+${auroraSection}
+</КОСМИЧЕСКИЙ_ДОЗОР>
 `;
     
     const model = geminiConfig.genAI.getGenerativeModel({ model: geminiConfig.modelName, generationConfig: geminiConfig.generationConfig });
@@ -111,7 +143,6 @@ ${historySection}
     console.log(articleText);
     console.log("\n========================\n");
     
-    // --- ЭТАП 4: Сохранение ---
     console.log("💾 [4/4] Сохранение результата...");
     saveArticle(articleText, timeOfDay, CONFIG.GEMINI.MODEL);
     console.log("\n🎉 Готово!");
@@ -127,17 +158,11 @@ ${historySection}
 /* 2. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ                                                 */
 /* ========================================================================== */
 
-/**
- * Возвращает объект Date, представляющий начало сегодняшнего дня в указанной временной зоне.
- * @param {string} timeZone IANA-идентификатор таймзоны (напр., 'Europe/Riga').
- * @returns {Date}
- */
 function getTodayForTimezone(timeZone) {
     const now = new Date();
     const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
     const partValue = (type) => parts.find(p => p.type === type)?.value || '';
     const dateString = `${partValue('year')}-${partValue('month')}-${partValue('day')}`;
-    // Создаем дату на 12:00 UTC, чтобы избежать проблем с переходом на летнее/зимнее время
     return new Date(`${dateString}T12:00:00Z`);
 }
 
@@ -151,9 +176,10 @@ function logPromise(promise, name) {
 
 function getUniqueRandomFact() {
   let usedIndices = [];
+  const logFile = CONFIG.OUTPUT.USED_FACTS_LOG;
   try {
-    if (fs.existsSync(CONFIG.OUTPUT.USED_FACTS_LOG)) {
-      usedIndices = JSON.parse(fs.readFileSync(CONFIG.OUTPUT.USED_FACTS_LOG, "utf-8"));
+    if (fs.existsSync(logFile)) {
+      usedIndices = JSON.parse(fs.readFileSync(logFile, "utf-8"));
     }
   } catch { usedIndices = []; }
   
@@ -167,7 +193,7 @@ function getUniqueRandomFact() {
   
   const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
   usedIndices.push(randomIndex);
-  fs.writeFileSync(CONFIG.OUTPUT.USED_FACTS_LOG, JSON.stringify(usedIndices, null, 2), "utf-8");
+  fs.writeFileSync(logFile, JSON.stringify(usedIndices, null, 2), "utf-8");
   
   return weatherFacts[randomIndex];
 }
