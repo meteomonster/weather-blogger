@@ -1,3 +1,4 @@
+
 /**
  * generate-article.js
  * v6.1 (Critical Fix)
@@ -11,6 +12,7 @@ import fs from "fs";
 import { getWeatherData } from "./api/met-no-api.js";
 import { getGlobalEventsData } from "./api/nasa-api.js";
 import { getHistoricalRecord } from "./api/open-meteo-api.js";
+
 import { getAirQualityData } from "./api/air-quality-api.js";
 import { getMarineData } from "./api/marine-api.js";
 import { getSpaceWeatherData } from "./api/space-weather-api.js";
@@ -18,11 +20,13 @@ import { getGardeningData } from "./api/gardening-api.js";
 import { getBioWeatherData } from "./api/bio-api.js";
 import { getPhotographyData } from "./api/photography-api.js";
 
+
 // Импорт генераторов разделов
 import { generateLocalForecastSection } from "./modules/local-forecast.js";
 import { generateGlobalEventsSection } from "./modules/global-events.js";
 import { generateHistoricalContextSection } from "./modules/historical-context.js";
 import { generateAirQualitySection } from "./modules/air-quality.js";
+
 import { generateMarineSection } from "./modules/marine-forecast.js";
 import { generateAuroraSection } from "./modules/aurora-forecast.js";
 import { generateGardenerCornerSection } from "./modules/gardener-corner.js";
@@ -65,6 +69,7 @@ const CONFIG = {
     const rigaDate = getTodayForTimezone(CONFIG.LOCATION.TIMEZONE);
 
     console.log("📊 [1/4] Сбор данных (параллельно)...");
+
     const [
         weatherData,
         globalEvents,
@@ -86,7 +91,10 @@ const CONFIG = {
         logPromise(getBioWeatherData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Биометео показатели"),
         logPromise(getPhotographyData({ ...CONFIG.LOCATION, ...CONFIG.API }), "Фото-гид"),
     ]);
-    const funFact = getUniqueRandomFact();
+
+    const [funFactRaw, closingFactRaw] = getUniqueRandomFacts(2);
+    const funFact = funFactRaw ?? "Погода полна сюрпризов — мы уже готовим новые факты.";
+    const closingFact = closingFactRaw ?? funFact;
     console.log("    ✅ Все данные собраны");
 
     console.log("✍️  [2/4] Генерация разделов статьи (параллельно)...");
@@ -96,6 +104,7 @@ const CONFIG = {
         generationConfig: CONFIG.GEMINI.GENERATION_CONFIG,
     };
     
+
     const [
         localSection,
         globalSection,
@@ -118,12 +127,22 @@ const CONFIG = {
         logPromise(generateBioForecastSection(bioWeatherData, airQualityData), "Биопрогноз"),
         logPromise(generatePhotographyGuideSection(photoGuideData), "Гид фотографа"),
     ]);
+
     console.log("    ✅ Все разделы сгенерированы");
 
     console.log("📝 [3/4] Сборка финальной статьи...");
     const finalPrompt = `
 Твоя роль: Главный редактор, который собирает из готовых блоков цельную и увлекательную статью для ${timeOfDayRu} выпуска погодного блога Риги.
-Твоя задача: Написать яркий заголовок, сильное вступление и логичное заключение. Между готовыми блоками сделай плавные, логичные переходы. НЕ переписывай текст ассистентов, а именно компонуй его в единый рассказ.
+Твоя задача: Написать яркий заголовок, тёплое вступление и логичное заключение. Между готовыми блоками сделай плавные, дружелюбные переходы. НЕ переписывай текст ассистентов, а именно компонуй его в единый рассказ.
+Тон: дружелюбный, заботливый, разговорный — словно делишься новостями с хорошим знакомым.
+
+Структура статьи:
+1. Заголовок.
+2. Вступление (2-3 предложения).
+3. Затем блоки в следующем порядке: 🌤️ Прогноз на неделю → 🌍 События в мире → 📜 Истории и факты → 🌬️ Качество воздуха → 🌊 Морской прогноз → 🌿 Уголок садовода → 💚 Биопрогноз → 📸 Гид фотографа → 🌌 Космический дозор.
+   Перед каждым заголовком добавь короткую дружескую подводку (1 предложение), но не изменяй текст и подзаголовок блока. Если заголовок уже присутствует, не дублируй его.
+4. Заверши основную часть коротким выводом (1-2 предложения) в том же тоне.
+5. Добавь финальный раздел «🔖 Послесловие» (2-3 предложения): пригласи читателя вернуться завтра и обыграй этот факт дня: ${closingFact}
 
 Вот готовые блоки от твоих экспертов:
 
@@ -162,6 +181,7 @@ ${photoSection}
 <КОСМИЧЕСКИЙ_ДОЗОР>
 ${auroraSection}
 </КОСМИЧЕСКИЙ_ДОЗОР>
+
 `;
     
     const model = geminiConfig.genAI.getGenerativeModel({ model: geminiConfig.modelName, generationConfig: geminiConfig.generationConfig });
@@ -203,28 +223,45 @@ function logPromise(promise, name) {
     });
 }
 
-function getUniqueRandomFact() {
-  let usedIndices = [];
+function getUniqueRandomFacts(count = 1) {
   const logFile = CONFIG.OUTPUT.USED_FACTS_LOG;
+  let usedIndices = [];
   try {
     if (fs.existsSync(logFile)) {
-      usedIndices = JSON.parse(fs.readFileSync(logFile, "utf-8"));
+      const parsed = JSON.parse(fs.readFileSync(logFile, "utf-8"));
+      if (Array.isArray(parsed)) {
+        usedIndices = parsed;
+      }
     }
-  } catch { usedIndices = []; }
-  
-  const allIndices = Array.from(weatherFacts.keys());
-  let availableIndices = allIndices.filter(index => !usedIndices.includes(index));
-  
-  if (availableIndices.length === 0) {
-    availableIndices = allIndices;
+  } catch {
     usedIndices = [];
   }
-  
-  const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
-  usedIndices.push(randomIndex);
-  fs.writeFileSync(logFile, JSON.stringify(usedIndices, null, 2), "utf-8");
-  
-  return weatherFacts[randomIndex];
+
+  const allIndices = weatherFacts.map((_, index) => index);
+  const chosen = [];
+
+  for (let i = 0; i < count; i += 1) {
+    let available = allIndices.filter(
+      (index) => !usedIndices.includes(index) && !chosen.includes(index)
+    );
+
+    if (available.length === 0) {
+      usedIndices = [];
+      available = allIndices.filter((index) => !chosen.includes(index));
+    }
+
+    if (available.length === 0) {
+      break;
+    }
+
+    const randomIndex = available[Math.floor(Math.random() * available.length)];
+    chosen.push(randomIndex);
+  }
+
+  const updatedLog = Array.from(new Set([...usedIndices, ...chosen]));
+  fs.writeFileSync(logFile, JSON.stringify(updatedLog, null, 2), "utf-8");
+
+  return chosen.map((index) => weatherFacts[index]);
 }
 
 function saveArticle(articleText, timeOfDay, modelUsed) {
