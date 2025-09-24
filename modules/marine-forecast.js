@@ -24,6 +24,8 @@ export async function generateMarineSection(marineData, geminiConfig) {
     marineData.temperature ??
     marineData.seaTemp ??
     marineData.sea_temperature ??
+    marineData.sea_surface_temperature ??
+    marineData.seaSurfaceTemperature ??
     marineData.water_temperature;
 
   const waveRaw =
@@ -34,6 +36,38 @@ export async function generateMarineSection(marineData, geminiConfig) {
 
   const temp = toNum(tempRaw);
   const wave = toNum(waveRaw);
+
+  const hasTemp = typeof temp === "number";
+  const hasWave = typeof wave === "number";
+
+  const fallbackSummary = () => {
+    const parts = [];
+    if (!hasTemp && !hasWave) {
+      parts.push(
+        "Морская служба пока не передала свежие данные о температуре воды и высоте волн. Следите за обновлениями перед выходом на воду."
+      );
+    } else {
+      if (hasTemp) {
+        parts.push(`Температура воды держится около ${fmt(temp, 1)}°C.`);
+      } else {
+        parts.push("Температура воды пока без уточнений — уточните её по навигационным каналам перед выходом.");
+      }
+
+      if (hasWave) {
+        parts.push(`Высота волны достигает примерно ${fmt(wave, 1)} м.`);
+      } else {
+        parts.push("Высота волны не сообщается, держите связь с портовой службой на случай изменений.");
+      }
+
+      parts.push("Проверяйте оперативные бюллетени, особенно если планируете выход к вечеру.");
+    }
+
+    return `${HEADING}\n\n${parts.join(" ")}`;
+  };
+
+  if (!hasTemp && !hasWave) {
+    return fallbackSummary();
+  }
 
   const dataPayload = {
     water_temperature: fmt(temp, 1), // °C
@@ -50,9 +84,9 @@ export async function generateMarineSection(marineData, geminiConfig) {
 `;
 
   try {
-    if (!geminiConfig?.genAI) {
+    if (!geminiConfig?.genAI || !hasTemp || !hasWave) {
       // Фоллбек без ИИ — чтобы пайплайн не падал, даже если конфиг пустой
-      return `${HEADING}\n\nТемпература воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
+      return fallbackSummary();
     }
 
     const { genAI, modelName, generationConfig } = geminiConfig;
@@ -61,6 +95,6 @@ export async function generateMarineSection(marineData, geminiConfig) {
     return `${HEADING}\n\n${result.response.text().trim()}`;
   } catch (e) {
     console.error("    -> Ошибка при генерации раздела о море:", e.message);
-    return `${HEADING}\n\nТемпература воды: ${dataPayload.water_temperature}°C, волна до ${dataPayload.wave_height} м.`;
+    return fallbackSummary();
   }
 }
