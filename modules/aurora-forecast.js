@@ -6,9 +6,19 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const HEADING = "🌌 Космический дозор";
 
+const KP_THRESHOLD = 5;
+
+const fallbackAuroraText = (kp) =>
+  `${HEADING}\n\nГеомагнитный фон повышен: прогнозируемый Kp-индекс около ${kp}. Есть шанс увидеть северное сияние — выбирайте тёмные площадки с видом на север и следите за сводками в реальном времени.`;
+
 export async function generateAuroraSection(spaceData, geminiConfig) {
   if (!spaceData || spaceData.kp_index == null) {
-    return `${HEADING}\n\nПрогноз космической погоды в данный момент недоступен.`;
+    return null;
+  }
+
+  const kp = Number(spaceData.kp_index);
+  if (!Number.isFinite(kp) || kp < KP_THRESHOLD) {
+    return null;
   }
 
   const prompt = `
@@ -37,6 +47,6 @@ Kp-индекс: ${spaceData.kp_index}
     return `${HEADING}\n\n${result.response.text().trim()}`;
   } catch (error) {
     console.warn(`    -> Ошибка генерации раздела об авроре: ${error.message}`);
-    return `${HEADING}\n\nПрогноз авроры составить не удалось.`;
+    return fallbackAuroraText(kp.toFixed(1));
   }
 }

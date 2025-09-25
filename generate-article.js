@@ -120,20 +120,70 @@ const CONFIG = {
       logPromise(generateGlobalEventsSection(globalEvents, geminiConfig), "Абзац о событиях"),
       logPromise(generateHistoricalContextSection(historicalData, funFact, geminiConfig), "Абзац об истории"),
       logPromise(generateAirQualitySection(airQualityData, geminiConfig), "Абзац о качестве воздуха"),
-      logPromise(generateMarineSection(marineData, geminiConfig), "Абзац о море"),
+      logPromise(
+        generateMarineSection(marineData, geminiConfig, {
+          date: rigaDate,
+          timezone: CONFIG.LOCATION.TIMEZONE,
+          weatherData,
+        }),
+        "Абзац о море"
+      ),
       logPromise(generateAuroraSection(spaceWeatherData, geminiConfig), "Абзац о северном сиянии"),
       logPromise(generateGardenerCornerSection(gardeningData), "Уголок садовода"),
       logPromise(generateBioForecastSection(bioWeatherData, airQualityData), "Биопрогноз"),
-      logPromise(generatePhotographyGuideSection(photoGuideData, geminiConfig), "Гид фотографа"),
+      logPromise(generatePhotographyGuideSection(photoGuideData), "Гид фотографа"),
     ]);
     console.log("    ✅ Разделы получены");
+
+    const sectionDefinitions = [
+      { key: "local", label: "Прогноз на неделю", tag: "ЛОКАЛЬНЫЙ_ПРОГНОЗ_РИГА", text: localSection },
+      { key: "global", label: "События в мире", tag: "ГЛОБАЛЬНЫЕ_СОБЫТИЯ", text: globalSection },
+      { key: "history", label: "Истории и факты", tag: "ИСТОРИЯ_И_ФАКТЫ", text: historySection },
+      { key: "air", label: "Качество воздуха", tag: "КАЧЕСТВО_ВОЗДУХА", text: airQualitySection },
+      { key: "marine", label: "Морской вестник", tag: "МОРСКОЙ_ВЕСТНИК", text: marineSection },
+      { key: "garden", label: "Уголок садовода", tag: "УГОЛОК_САДОВОДА", text: gardenerSection },
+      { key: "bio", label: "Биопрогноз", tag: "БИОПРОГНОЗ", text: bioSection },
+      { key: "photo", label: "Гид фотографа", tag: "ФОТОГИД", text: photoSection },
+      { key: "aurora", label: "Космический дозор", tag: "КОСМИЧЕСКИЙ_ДОЗОР", text: auroraSection },
+    ];
+
+    sectionDefinitions
+      .filter((section) => !section.text || !String(section.text).trim())
+      .forEach((section) =>
+        console.log(`    ℹ️ Раздел "${section.label}" пропущен — нет актуальных данных.`)
+      );
+
+    const availableSections = sectionDefinitions.filter(
+      (section) => typeof section.text === "string" && section.text.trim().length > 0
+    );
+
+    if (!availableSections.length) {
+      throw new Error("Нет блоков для сборки статьи — проверьте источники данных.");
+    }
+
+    console.log(
+      `    📚 В выпуск войдут блоки: ${availableSections.map((section) => section.label).join(", ")}`
+    );
+
+    const blockInstruction = availableSections
+      .map(
+        (section, idx) =>
+          `${idx + 1}. ${section.label} — используй текст между тегами <${section.tag}>…</${section.tag}>.`
+      )
+      .join("\n");
+
+    const blocksPayload = availableSections
+      .map((section) => `<${section.tag}>\n${section.text}\n</${section.tag}>`)
+      .join("\n\n");
+
+    const blockNames = availableSections.map((section) => section.label).join(" → ");
 
     console.log("📝 [3/4] Сборка финальной статьи...");
     const finalPrompt = `
 Твоя роль: Главный редактор, который собирает из готовых блоков цельную и увлекательную статью для ${timeOfDayRu} выпуска погодного блога Риги.
 
 Жёсткие требования к форматированию:
-- ПИШИ ТОЛЬКО ПРОСТЫЙ ТЕКСТ БЕЗ MARKDOWN.
+- ПИШИ ТОЛЬКО ПРОСТОЙ ТЕКСТ БЕЗ MARKDOWN.
 - Никаких **звёздочек**, _подчёркиваний_, #заголовков, >цитат, списков с «-»/«•».
 - Не используй типографские кавычки «…»/„…“/“…” — если нужна прямая речь, используй обычные "двойные" только внутри фразы, но в этой статье прямой речи нет.
 - Не ставь слова в кавычки «для красоты».
@@ -143,48 +193,15 @@ const CONFIG = {
 Структура статьи:
 1) Заголовок (одна строка).
 2) Вступление (2–3 предложения).
-3) Дальше блоки в порядке: Прогноз на неделю → События в мире → Истории и факты → Качество воздуха → Морской прогноз → Уголок садовода → Биопрогноз → Гид фотографа → Космический дозор.
+3) Дальше используй подготовленные блоки (по порядку): ${blockNames}.
+   Для ориентира воспользуйся чек-листом:
+${blockInstruction}
    Перед каждым блоком — короткая подводка (1 предложение). Сам текст блока оставь как есть (без переформулировок).
 4) Короткий вывод (1–2 предложения).
 5) Финальный раздел «Послесловие» (2–3 предложения), используй факт: ${closingFact}
 
 Готовые блоки:
-<ЛОКАЛЬНЫЙ_ПРОГНОЗ_РИГА>
-${localSection}
-</ЛОКАЛЬНЫЙ_ПРОГНОЗ_РИГА>
-
-<ГЛОБАЛЬНЫЕ_СОБЫТИЯ>
-${globalSection}
-</ГЛОБАЛЬНЫЕ_СОБЫТИЯ>
-
-<ИСТОРИЯ_И_ФАКТЫ>
-${historySection}
-</ИСТОРИЯ_И_ФАКТЫ>
-
-<КАЧЕСТВО_ВОЗДУХА>
-${airQualitySection}
-</КАЧЕСТВО_ВОЗДУХА>
-
-<МОРСКОЙ_ВЕСТНИК>
-${marineSection}
-</МОРСКОЙ_ВЕСТНИК>
-
-<УГОЛОК_САДОВОДА>
-${gardenerSection}
-</УГОЛОК_САДОВОДА>
-
-<БИОПРОГНОЗ>
-${bioSection}
-</БИОПРОГНОЗ>
-
-<ФОТОГИД>
-${photoSection}
-</ФОТОГИД>
-
-<КОСМИЧЕСКИЙ_ДОЗОР>
-${auroraSection}
-</КОСМИЧЕСКИЙ_ДОЗОР>
-`.trim();
+${blocksPayload}`.trim();
 
     const model = geminiConfig.genAI.getGenerativeModel({
       model: geminiConfig.modelName,

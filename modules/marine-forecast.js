@@ -14,9 +14,33 @@ const toNum = (v) => {
 const fmt = (v, digits = 1) =>
   (typeof v === "number" && Number.isFinite(v) ? v.toFixed(digits) : "неизвестно");
 
-export async function generateMarineSection(marineData, geminiConfig) {
+const getLocalMonth = (date, timezone) => {
+  if (!(date instanceof Date) || Number.isNaN(date.valueOf())) return null;
+  try {
+    const formatted = new Intl.DateTimeFormat("en-US", {
+      month: "numeric",
+      timeZone: timezone || "UTC",
+    }).format(date);
+    const month = Number(formatted);
+    return Number.isFinite(month) ? month : null;
+  } catch {
+    return date.getUTCMonth() + 1;
+  }
+};
+
+export async function generateMarineSection(marineData, geminiConfig, context = {}) {
+  const month = getLocalMonth(context.date, context.timezone);
+  const inSwimmingSeason = month != null && month >= 5 && month <= 9; // май–сентябрь (1-based)
+
+  const airMax = toNum(context.weatherData?.temperature_2m_max?.[0]);
+  const comfortableAir = typeof airMax === "number" && airMax >= 16;
+
+  if (!inSwimmingSeason || !comfortableAir) {
+    return null;
+  }
+
   if (!marineData || typeof marineData !== "object") {
-    return `${HEADING}\n\nДанные о погоде на море сегодня недоступны.`;
+    return null;
   }
 
   // Популярные алиасы полей на всякий случай
@@ -35,39 +59,23 @@ export async function generateMarineSection(marineData, geminiConfig) {
     marineData.swellHeight;
 
   const temp = toNum(tempRaw);
-  const wave = toNum(waveRaw);
+  if (typeof temp !== "number" || temp < 15) {
+    return null;
+  }
 
-  const hasTemp = typeof temp === "number";
+  const wave = toNum(waveRaw);
   const hasWave = typeof wave === "number";
 
   const fallbackSummary = () => {
-    const parts = [];
-    if (!hasTemp && !hasWave) {
-      parts.push(
-        "Морская служба пока не передала свежие данные о температуре воды и высоте волн. Следите за обновлениями перед выходом на воду."
-      );
+    const parts = [`Температура воды держится около ${fmt(temp, 1)}°C.`];
+    if (hasWave) {
+      parts.push(`Высота волны достигает примерно ${fmt(wave, 1)} м.`);
     } else {
-      if (hasTemp) {
-        parts.push(`Температура воды держится около ${fmt(temp, 1)}°C.`);
-      } else {
-        parts.push("Температура воды пока без уточнений — уточните её по навигационным каналам перед выходом.");
-      }
-
-      if (hasWave) {
-        parts.push(`Высота волны достигает примерно ${fmt(wave, 1)} м.`);
-      } else {
-        parts.push("Высота волны не сообщается, держите связь с портовой службой на случай изменений.");
-      }
-
-      parts.push("Проверяйте оперативные бюллетени, особенно если планируете выход к вечеру.");
+      parts.push("Высота волны не сообщается, держите связь с портовой службой на случай изменений.");
     }
-
+    parts.push("Проверяйте оперативные бюллетени, особенно если планируете выход к вечеру.");
     return `${HEADING}\n\n${parts.join(" ")}`;
   };
-
-  if (!hasTemp && !hasWave) {
-    return fallbackSummary();
-  }
 
   const dataPayload = {
     water_temperature: fmt(temp, 1), // °C
@@ -84,7 +92,7 @@ export async function generateMarineSection(marineData, geminiConfig) {
 `;
 
   try {
-    if (!geminiConfig?.genAI || !hasTemp || !hasWave) {
+    if (!geminiConfig?.genAI || !hasWave) {
       // Фоллбек без ИИ — чтобы пайплайн не падал, даже если конфиг пустой
       return fallbackSummary();
     }

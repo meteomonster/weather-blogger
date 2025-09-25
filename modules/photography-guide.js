@@ -109,10 +109,7 @@ function pickStarHighlight(dateIso) {
 
 export async function generatePhotographyGuideSection(photographyData) {
   if (!photographyData || !photographyData.days?.length) {
-    return [
-      "📸 Гид фотографа",
-      "Свежие данные от наблюдательных сервисов не поступили, поэтому точные окна съёмки временно недоступны. Мы повторим запрос позже, а пока ориентируйтесь на общий прогноз и золотые часы по классике: за час до восхода и за час до заката."
-    ].join("\n\n");
+    return null;
   }
 
   const timezone = photographyData.timezone || "Europe/Riga";
@@ -121,37 +118,83 @@ export async function generatePhotographyGuideSection(photographyData) {
 
   const morningWindow = formatWindow(today.morning.window);
   const eveningWindow = formatWindow(today.evening.window);
-  const morningCloud = describeCloud(today.morning.cloud);
-  const eveningCloud = describeCloud(today.evening.cloud);
-  const nightCloud = describeCloud(today.night.cloud);
-  const transparencyText = describeTransparency(today.night.transparency);
-  const visibilityText = describeVisibility(today.night.visibility);
-  const moonPhaseText = describeMoonPhase(today.moonPhase);
-  const milkyWayText = milkyWayHint(today, timezone);
+  const hasMorningWindow = today.morning?.window?.start != null && today.morning?.window?.end != null;
+  const hasEveningWindow = today.evening?.window?.start != null && today.evening?.window?.end != null;
+  const hasNightCloud = typeof today.night?.cloud === "number";
+  const hasTransparency = typeof today.night?.transparency === "number";
+  const hasVisibility = typeof today.night?.visibility === "number";
+  const hasMoonData = typeof today.moonPhase === "number" || today.moonrise != null || today.moonset != null;
+
+  if (!hasMorningWindow && !hasEveningWindow && !hasNightCloud && !hasTransparency && !hasVisibility) {
+    return null;
+  }
+
+  const morningCloud = typeof today.morning?.cloud === "number" ? describeCloud(today.morning.cloud) : null;
+  const eveningCloud = typeof today.evening?.cloud === "number" ? describeCloud(today.evening.cloud) : null;
+  const nightCloud = hasNightCloud ? describeCloud(today.night.cloud) : null;
+  const transparencyText = hasTransparency ? describeTransparency(today.night.transparency) : null;
+  const visibilityText = hasVisibility ? describeVisibility(today.night.visibility) : null;
+  const moonPhaseText = hasMoonData ? describeMoonPhase(today.moonPhase) : null;
+  const milkyWayText = (hasNightCloud || hasTransparency || hasMoonData || hasVisibility)
+    ? milkyWayHint(today, timezone)
+    : null;
   const starHighlight = pickStarHighlight(today.date);
 
+  const goldenLines = [];
+  if (hasMorningWindow) {
+    const morningNote = morningCloud || "облачность уточняется";
+    goldenLines.push(`• Утро ${morningWindow} — ${morningNote}.`);
+  }
+  if (hasEveningWindow) {
+    const eveningNote = eveningCloud || "облачность уточняется";
+    goldenLines.push(`• Вечер ${eveningWindow} — ${eveningNote}.`);
+  }
+
+  const nightLines = [];
+  if (nightCloud) {
+    nightLines.push(`• Облачность: ${nightCloud}.`);
+  }
+  if (transparencyText || visibilityText) {
+    const pieces = [transparencyText, visibilityText].filter(Boolean).join(", ");
+    nightLines.push(`• ${pieces}.`);
+  }
+  if (moonPhaseText) {
+    nightLines.push(`• Луна: ${moonPhaseText}.`);
+  }
+  if (milkyWayText) {
+    nightLines.push(`• ${milkyWayText}`);
+  }
+
   const outlookLines = photographyData.days.slice(1).map((day) => {
+    const hasWindow = day.evening?.window?.start != null && day.evening?.window?.end != null;
+    if (!hasWindow) return null;
     const label = formatDateLabel(day.date, timezone, { weekday: "short", day: "numeric" });
     const evening = formatWindow(day.evening.window);
-    const cloud = describeCloud(day.evening.cloud);
-    return `- ${label}: вечернее окно ${evening}, ${cloud}.`;
-  });
+    const cloudValue = typeof day.evening.cloud === "number" ? describeCloud(day.evening.cloud) : "облачность уточняется";
+    return `- ${label}: вечернее окно ${evening}, ${cloudValue}.`;
+  }).filter(Boolean);
 
-  return [
+  const result = [
     "📸 Гид фотографа",
     `${todayLabel.charAt(0).toUpperCase()}${todayLabel.slice(1)}:`,
-    "Золотые часы:",
-    `• Утро ${morningWindow} — ${morningCloud}.`,
-    `• Вечер ${eveningWindow} — ${eveningCloud}.`,
-    "Ночное небо:",
-    `• Облачность: ${nightCloud}.`,
-    `• Прозрачность: ${transparencyText}, ${visibilityText}.`,
-    `• Луна: ${moonPhaseText}.`,
-    `• ${milkyWayText}`,
-    `✨ Звезда дня: ${starHighlight}`,
-    outlookLines.length ? "Взгляд на следующие вечера:" : "",
-    outlookLines.join("\n"),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  ];
+
+  if (goldenLines.length) {
+    result.push("Золотые часы:");
+    result.push(goldenLines.join("\n"));
+  }
+
+  if (nightLines.length) {
+    result.push("Ночное небо:");
+    result.push(nightLines.join("\n"));
+  }
+
+  result.push(`✨ Звезда дня: ${starHighlight}`);
+
+  if (outlookLines.length) {
+    result.push("Взгляд на следующие вечера:");
+    result.push(outlookLines.join("\n"));
+  }
+
+  return result.filter(Boolean).join("\n\n");
 }
