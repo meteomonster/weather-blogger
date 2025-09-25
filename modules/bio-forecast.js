@@ -22,12 +22,13 @@ function describeUV(index) {
   return { level: `очень высокий (${index.toFixed(1)})`, tip: "избегайте прямого солнца, ищите тень и пейте воду." };
 }
 
+const MIN_POLLEN_NOTICE = 15;
+
 function describePollen(value) {
-  if (typeof value !== "number") return null;
-  if (value <= 0) return "нет";
-  if (value < 20) return `низко (${value.toFixed(0)})`;
-  if (value < 60) return `средне (${value.toFixed(0)})`;
-  return `высоко (${value.toFixed(0)})`;
+  if (typeof value !== "number" || value <= MIN_POLLEN_NOTICE) return null;
+  if (value < 40) return `низко (${Math.round(value)})`;
+  if (value < 80) return `средне (${Math.round(value)})`;
+  return `высоко (${Math.round(value)})`;
 }
 
 function describePressure(day) {
@@ -98,17 +99,34 @@ export async function generateBioForecastSection(bioData, airQualityData) {
   const timezone = bioData.timezone || "Europe/Riga";
   const today = bioData.days[0];
   const todayLabel = formatDateLabel(today.date, timezone, { weekday: "long", day: "numeric", month: "long" });
-  const uv = describeUV(today.uvIndex);
-  const pollenParts = [];
+  const uvIndex = typeof today.uvIndex === "number" ? today.uvIndex : null;
+  const showUV = uvIndex != null && uvIndex >= 4;
+  const uv = showUV ? describeUV(uvIndex) : null;
+
+  const pollenDetails = [];
+  const pollenValues = [];
   if (airQualityData) {
-    const birch = describePollen(airQualityData.birch_pollen);
-    const grass = describePollen(airQualityData.grass_pollen);
-    const ragweed = describePollen(airQualityData.ragweed_pollen);
-    if (birch) pollenParts.push(`берёза — ${birch}`);
-    if (grass) pollenParts.push(`злаки — ${grass}`);
-    if (ragweed) pollenParts.push(`амброзия — ${ragweed}`);
+    const mapping = [
+      ["берёза", airQualityData.birch_pollen],
+      ["злаки", airQualityData.grass_pollen],
+      ["амброзия", airQualityData.ragweed_pollen],
+    ];
+    for (const [name, value] of mapping) {
+      if (typeof value === "number") {
+        pollenValues.push(value);
+        const desc = describePollen(value);
+        if (desc) {
+          pollenDetails.push(`${name} — ${desc}`);
+        }
+      }
+    }
   }
-  const pollenText = pollenParts.length ? pollenParts.join(", ") : "данных пока нет";
+  const hasPollenReadings = pollenValues.length > 0;
+  const pollenLine = pollenDetails.length
+    ? `🌿 Пыльца: ${pollenDetails.join(", ")}.`
+    : hasPollenReadings
+    ? "🌿 Пыльца: фон минимальный, аллергикам можно выдохнуть."
+    : null;
   const pressureText = describePressure(today);
   const energy = computeEnergy(today);
 
@@ -124,8 +142,8 @@ export async function generateBioForecastSection(bioData, airQualityData) {
   return [
     "💚 Биопрогноз",
     `${todayLabel.charAt(0).toUpperCase()}${todayLabel.slice(1)} — заботимся о себе:`,
-    `☀️ УФ: ${uv.level}. ${uv.tip}`,
-    `🌿 Пыльца: ${pollenText}.`,
+    uv ? `☀️ УФ: ${uv.level}. ${uv.tip}` : null,
+    pollenLine,
     `⚖️ Давление: ${pressureText}.`,
     `${energy.label}: ${energy.text}`,
     outlookLines.length ? "Прогноз на ближайшие дни:" : "",
