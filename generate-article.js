@@ -42,7 +42,7 @@ const CONFIG = {
   LOCATION: { LAT: 56.95, LON: 24.1, TIMEZONE: "Europe/Riga" },
   API: { USER_AGENT: "WeatherBloggerApp/3.0 (+https://github.com/meteomonster/weather-blogger)" },
   GEMINI: {
-    MODEL: "gemini-1.5-flash-latest",
+    MODEL: process.env.GEMINI_MODEL_NAME || "gemini-1.5-flash",
     GENERATION_CONFIG: { temperature: 0.8, topP: 0.9, topK: 40, maxOutputTokens: 4000 },
   },
   OUTPUT: {
